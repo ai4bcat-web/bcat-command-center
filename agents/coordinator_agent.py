@@ -10,7 +10,6 @@ class CoordinatorAgent:
 
     def __init__(self):
         self.finance_agent = FinanceAgent()
-        self.finance_agent.ingest_data('ivan_cartage_expenses.csv')
         if _registry:
             _registry.register("CoordinatorAgent", "Message routing and agent orchestration")
 

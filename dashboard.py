@@ -9,18 +9,31 @@ import agent_registry
 import marketing_data as _md
 from agents.marketing_agent import MarketingAgent
 
-# ── Discord bot (runs in background thread if token is set) ───────────────────
+# ── Background bot launcher ───────────────────────────────────────────────────
+_log = logging.getLogger(__name__)
+
 def _start_discord_bot():
-    token = os.environ.get('DISCORD_BOT_TOKEN', '').strip()
-    if not token:
+    if not os.environ.get('DISCORD_BOT_TOKEN', '').strip():
+        _log.info('DISCORD_BOT_TOKEN not set — Discord bot skipped.')
         return
     try:
-        import discord_bot  # noqa — importing runs bot.run() at module level
+        import discord_bot
+        discord_bot.run()
     except Exception as e:
-        logging.getLogger(__name__).warning('Discord bot failed to start: %s', e)
+        _log.error('Discord bot crashed: %s', e, exc_info=True)
 
-_discord_thread = threading.Thread(target=_start_discord_bot, daemon=True)
-_discord_thread.start()
+def _start_telegram_bot():
+    if not os.environ.get('TELEGRAM_BOT_TOKEN', '').strip():
+        _log.info('TELEGRAM_BOT_TOKEN not set — Telegram bot skipped.')
+        return
+    try:
+        import telegram_bot
+        telegram_bot.run()
+    except Exception as e:
+        _log.error('Telegram bot crashed: %s', e, exc_info=True)
+
+threading.Thread(target=_start_discord_bot, daemon=True, name='discord-bot').start()
+threading.Thread(target=_start_telegram_bot, daemon=True, name='telegram-bot').start()
 
 # Best Care real-data service layer (imported lazily to avoid startup failure
 # if google-ads package is not yet installed)
@@ -680,6 +693,61 @@ def aiden_generate_hooks():
     from hook_generator import generate_hooks
     hooks = generate_hooks(topic, data.get('style_mode', 'operator_founder'), data.get('category', 'industry'))
     return jsonify({'hooks': hooks, 'ai_powered': bool(os.environ.get('ANTHROPIC_API_KEY', '').strip())})
+
+
+# ── Health / diagnostics endpoint (public — no login required) ───────────────
+@app.route('/api/health', methods=['GET'])
+def health():
+    from pathlib import Path
+    import threading as _threading
+
+    root = Path(__file__).resolve().parent
+
+    def _env(key):
+        return bool(os.environ.get(key, '').strip())
+
+    def _csv(name):
+        p = root / name
+        if not p.exists():
+            return {'present': False}
+        try:
+            import pandas as pd
+            df = pd.read_csv(p, nrows=1)
+            rows = sum(1 for _ in open(p)) - 1
+            return {'present': True, 'rows': rows, 'columns': list(df.columns)}
+        except Exception as e:
+            return {'present': True, 'error': str(e)}
+
+    def _thread_alive(name):
+        return any(t.name == name and t.is_alive() for t in _threading.enumerate())
+
+    status = {
+        'ok': True,
+        'env': {
+            'SECRET_KEY':           _env('SECRET_KEY'),
+            'ADMIN_EMAIL':          _env('ADMIN_EMAIL'),
+            'ADMIN_PASSWORD_HASH':  _env('ADMIN_PASSWORD_HASH'),
+            'DISCORD_BOT_TOKEN':    _env('DISCORD_BOT_TOKEN'),
+            'TELEGRAM_BOT_TOKEN':   _env('TELEGRAM_BOT_TOKEN'),
+            'ANTHROPIC_API_KEY':    _env('ANTHROPIC_API_KEY'),
+            'APP_BASE_URL':         _env('APP_BASE_URL'),
+            'COOKIE_DOMAIN':        _env('COOKIE_DOMAIN'),
+        },
+        'data': {
+            'brokerage_loads':      _csv('brokerage_loads.csv'),
+            'ivan_cartage_loads':   _csv('ivan_cartage_loads.csv'),
+            'ivan_expenses':        _csv('ivan_expenses.csv'),
+            'amazon_loads':         _csv('amazon_loads.csv'),
+        },
+        'bots': {
+            'discord':  _thread_alive('discord-bot'),
+            'telegram': _thread_alive('telegram-bot'),
+        },
+        'services': {
+            'best_care': _BC_AVAILABLE,
+        },
+    }
+    return jsonify(status)
 
 
 # ── Dev server entry point ────────────────────────────────────────────────────

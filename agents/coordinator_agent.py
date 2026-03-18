@@ -35,18 +35,32 @@ class CoordinatorAgent:
 
         text = message.lower().strip()
 
-        # Finance questions
+        # Finance questions — return a live summary from the finance agent
         if any(word in text for word in [
-            "revenue",
-            "profit",
-            "margin",
-            "carrier",
-            "customer",
-            "load",
-            "ivan",
-            "amazon"
+            "revenue", "profit", "margin", "carrier",
+            "customer", "load", "ivan", "amazon"
         ]):
-            return self.finance_agent.answer_question(text)
+            try:
+                self.finance_agent.ingest_data()
+                brokerage = self.finance_agent.calculate_brokerage_metrics()
+                from finance_agent import get_ivan_expense_metrics
+                ivan = get_ivan_expense_metrics()
+                total = float(brokerage.get("gross_revenue", 0)) + float(ivan.get("ivan_cartage_revenue", 0))
+                if _registry:
+                    _registry.set_status("CoordinatorAgent", "idle")
+                return (
+                    f"📊 BCAT Finance Summary\n"
+                    f"Total Company Revenue: ${total:,.2f}\n"
+                    f"Brokerage — Revenue: ${brokerage.get('gross_revenue', 0):,.2f} | "
+                    f"Profit: ${brokerage.get('gross_profit', 0):,.2f} | "
+                    f"Margin: {brokerage.get('margin_percentage', 0):.1f}%\n"
+                    f"Ivan Cartage — Revenue: ${ivan.get('ivan_cartage_revenue', 0):,.2f} | "
+                    f"Profit: ${ivan.get('ivan_true_profit', 0):,.2f}"
+                )
+            except Exception as e:
+                if _registry:
+                    _registry.set_status("CoordinatorAgent", "idle")
+                return f"Could not load finance data: {e}"
 
         # Terminal command execution
         if text.startswith("run:"):

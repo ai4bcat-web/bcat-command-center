@@ -29,9 +29,13 @@ def run():
         return
 
     try:
-        # Import the proper bot module from bot/
-        # bot/discord_bot.py defines `bot` but guards run() behind __name__
-        import discord_bot as _bot_module  # resolves to bot/discord_bot.py via sys.path
+        # Load bot/discord_bot.py by file path to avoid name collision with this file
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_finance_discord_bot", BOT_DIR / "discord_bot.py")
+        _bot_module = importlib.util.module_from_spec(spec)
+        sys.modules["_finance_discord_bot"] = _bot_module
+        spec.loader.exec_module(_bot_module)
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         _bot_module.bot.run(token)

@@ -1,6 +1,14 @@
 import os
+import sys
 import threading
 import logging
+from pathlib import Path
+
+# ── Ensure project root is on sys.path so all agent/bot imports resolve ───────
+_PROJECT_ROOT = Path(__file__).resolve().parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 import config                                                    # must be first — raises if SECRET_KEY missing in prod
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for
 from auth import login_required, verify_credentials
@@ -8,6 +16,7 @@ from finance_agent import FinanceAgent, get_ivan_expense_metrics
 import agent_registry
 import marketing_data as _md
 from agents.marketing_agent import MarketingAgent
+from agents.coordinator_agent import CoordinatorAgent
 
 # ── Background bot launcher ───────────────────────────────────────────────────
 _log = logging.getLogger(__name__)
@@ -57,10 +66,15 @@ app.config['SESSION_COOKIE_SAMESITE']= config.SESSION_COOKIE_SAMESITE
 app.config['SESSION_COOKIE_DOMAIN']  = config.SESSION_COOKIE_DOMAIN
 app.config['PERMANENT_SESSION_LIFETIME'] = config.PERMANENT_SESSION_LIFETIME
 
-finance_agent  = FinanceAgent()
-marketing_agent = MarketingAgent()
+finance_agent    = FinanceAgent()
+marketing_agent  = MarketingAgent()
+coordinator      = CoordinatorAgent()
 
-agent_registry.register("Dashboard", "Flask web dashboard — serves finance data and agent status")
+# Explicit registration ensures all agents appear in /api/health and /api/agents
+agent_registry.register("Dashboard",         "Flask web dashboard — serves finance data and agent status")
+agent_registry.register("FinanceAgent",      "Financial data ingestion and metrics (Ivan Cartage, brokerage, Amazon)")
+agent_registry.register("MarketingAgent",    "Marketing intelligence and campaign analysis")
+agent_registry.register("CoordinatorAgent",  "Message routing and agent orchestration")
 
 
 # ── Auth routes (public) ──────────────────────────────────────────────────────
@@ -721,6 +735,19 @@ def health():
     def _thread_alive(name):
         return any(t.name == name and t.is_alive() for t in _threading.enumerate())
 
+    # Agent status from registry
+    registered_agents = {a['name']: a['status'] for a in agent_registry.get_all()}
+
+    # Quick data-layer smoke test
+    data_ok = False
+    data_error = None
+    try:
+        finance_agent.ingest_data()
+        m = finance_agent.calculate_brokerage_metrics()
+        data_ok = m.get('gross_revenue', 0) >= 0
+    except Exception as exc:
+        data_error = str(exc)
+
     status = {
         'ok': True,
         'env': {
@@ -733,15 +760,23 @@ def health():
             'APP_BASE_URL':         _env('APP_BASE_URL'),
             'COOKIE_DOMAIN':        _env('COOKIE_DOMAIN'),
         },
-        'data': {
-            'brokerage_loads':      _csv('brokerage_loads.csv'),
-            'ivan_cartage_loads':   _csv('ivan_cartage_loads.csv'),
-            'ivan_expenses':        _csv('ivan_expenses.csv'),
-            'amazon_loads':         _csv('amazon_loads.csv'),
+        'agents': {
+            'finance_agent':     registered_agents.get('FinanceAgent',     'not registered'),
+            'marketing_agent':   registered_agents.get('MarketingAgent',   'not registered'),
+            'coordinator_agent': registered_agents.get('CoordinatorAgent', 'not registered'),
+            'dashboard':         registered_agents.get('Dashboard',        'not registered'),
         },
         'bots': {
-            'discord':  _thread_alive('discord-bot'),
-            'telegram': _thread_alive('telegram-bot'),
+            'discord':  {'running': _thread_alive('discord-bot'),  'token_set': _env('DISCORD_BOT_TOKEN')},
+            'telegram': {'running': _thread_alive('telegram-bot'), 'token_set': _env('TELEGRAM_BOT_TOKEN')},
+        },
+        'data': {
+            'layer_ok':           data_ok,
+            'layer_error':        data_error,
+            'brokerage_loads':    _csv('brokerage_loads.csv'),
+            'ivan_cartage_loads': _csv('ivan_cartage_loads.csv'),
+            'ivan_expenses':      _csv('ivan_expenses.csv'),
+            'amazon_loads':       _csv('amazon_loads.csv'),
         },
         'services': {
             'best_care': _BC_AVAILABLE,

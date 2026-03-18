@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BCAT Command Center</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/marketing.css">
+    <link rel="stylesheet" href="/static/sales.css">
+    <link rel="stylesheet" href="/static/aiden.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <!-- ── Command Center Header ────────────────────────────────────────── -->
+    <div class="cc-header">
+        <div class="cc-brand">BCAT Command Center</div>
+        <div class="cc-company-tabs">
+            <button class="cc-company-tab active" onclick="openCompany(this,'bcat')">BCAT</button>
+            <button class="cc-company-tab" onclick="openCompany(this,'ivan')">Ivan Cartage</button>
+            <button class="cc-company-tab" onclick="openCompany(this,'bestcare')">Best Care Auto Transport</button>
+            <button class="cc-company-tab" onclick="openCompany(this,'aiden')">Aiden</button>
+            <button class="cc-company-tab" onclick="openCompany(this,'agents')">Agents</button>
+        </div>
+        <form method="POST" action="/logout" style="margin:0">
+            <button type="submit" class="cc-logout-btn" title="Sign out">Sign out</button>
+        </form>
+    </div>
+
+    <!-- ── Global Metric Cards (always visible) ─────────────────────────── -->
+    <div id="global-metrics" class="cc-global-metrics"></div>
+
+    <!-- ── Department Subtabs (hidden for Agents) ───────────────────────── -->
+    <div id="cc-dept-bar" class="cc-dept-bar">
+        <button class="cc-dept-tab active" onclick="openDept(this,'finance')">Finance</button>
+        <button class="cc-dept-tab" onclick="openDept(this,'marketing')">Marketing</button>
+        <button class="cc-dept-tab" onclick="openDept(this,'sales')">Sales</button>
+    </div>
+
+    <!-- ── Company Panels ───────────────────────────────────────────────── -->
+
+    <!-- BCAT -->
+    <div id="cc-company-bcat" class="cc-company-panel active">
+        <div id="finance" class="cc-dept-panel active" data-dept="finance">
+            <div id="dashboard"></div>
+        </div>
+        <div id="marketing" class="cc-dept-panel" data-dept="marketing">
+            <div id="marketing-app"></div>
+        </div>
+        <div id="sales" class="cc-dept-panel" data-dept="sales">
+            <div id="sales-app"></div>
+        </div>
+    </div>
+
+    <!-- Ivan Cartage -->
+    <div id="cc-company-ivan" class="cc-company-panel">
+        <div id="ivan-finance" class="cc-dept-panel active" data-dept="finance">
+            <div id="ivan-finance-content"></div>
+        </div>
+        <div id="ivan-marketing" class="cc-dept-panel" data-dept="marketing">
+            <div id="ivan-marketing-app"></div>
+        </div>
+        <div id="ivan-sales" class="cc-dept-panel" data-dept="sales">
+            <div class="cc-placeholder">
+                <div class="cc-placeholder-icon">🎯</div>
+                <div class="cc-placeholder-title">Ivan Cartage — Sales</div>
+                <div class="cc-placeholder-sub">Sales pipeline for Ivan Cartage will appear here.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Best Care Auto Transport -->
+    <div id="cc-company-bestcare" class="cc-company-panel">
+        <div id="bestcare-finance" class="cc-dept-panel active" data-dept="finance">
+            <div class="cc-placeholder">
+                <div class="cc-placeholder-icon">🚗</div>
+                <div class="cc-placeholder-title">Best Care Auto Transport — Finance</div>
+                <div class="cc-placeholder-sub">Finance data for Best Care will appear here.</div>
+            </div>
+        </div>
+        <div id="bestcare-marketing" class="cc-dept-panel" data-dept="marketing">
+            <div id="bestcare-marketing-app"></div>
+        </div>
+        <div id="bestcare-sales" class="cc-dept-panel" data-dept="sales">
+            <div id="bestcare-sales-app"></div>
+        </div>
+    </div>
+
+    <!-- Agents (no dept tabs) -->
+    <div id="cc-company-agents" class="cc-company-panel">
+        <div id="agents-panel"></div>
+    </div>
+
+    <!-- Aiden — AidenApp.init() owns all navigation and rendering here -->
+    <div id="cc-company-aiden" class="cc-company-panel"></div>
+
+    <!-- ── Scripts ────────────────────────────────────────────────────────── -->
+    <script src="/static/dashboard.js"></script>
+    <script src="/static/marketing.js"></script>
+    <script src="/static/sales.js"></script>
+    <script src="/static/aiden.js"></script>
+</body>
+</html>

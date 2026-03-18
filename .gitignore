@@ -1,0 +1,50 @@
+# ── Secrets / credentials ──────────────────────────────────────────────────
+.env
+.env.save
+credentials.json
+token.json
+google-ads.yaml
+*.pem
+*.key
+
+# ── Apple iWork / Keynote / Numbers files ─────────────────────────────────
+Index/
+Metadata/
+*.numbers
+*.pages
+*.key
+
+# ── Misc project artifacts ────────────────────────────────────────────────
+openclaw_test.txt
+dashboard_css_copy.txt
+preview*.jpg
+*.bak
+*.save
+discord_py
+seed_demo_data.ts
+
+# ── Python ────────────────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Data files (local only — may contain PII / real business data) ────────
+*.csv
+data/
+
+# ── OS / editor ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Logs ─────────────────────────────────────────────────────────────────
+*.log

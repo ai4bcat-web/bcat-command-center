@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BCAT Command Center — DEMO</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <link rel="stylesheet" href="/static/marketing.css">
+    <link rel="stylesheet" href="/static/sales.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* ── Demo banner ──────────────────────────────────────────────── */
+        .demo-banner {
+            background: linear-gradient(90deg, #064e3b 0%, #065f46 100%);
+            border-bottom: 1px solid #10b981;
+            color: #a7f3d0;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            padding: 6px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .demo-banner-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #34d399;
+            box-shadow: 0 0 6px #34d399;
+            flex-shrink: 0;
+        }
+        .demo-banner-label {
+            font-size: 11px;
+            background: #10b981;
+            color: #fff;
+            padding: 1px 8px;
+            border-radius: 999px;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }
+
+        /* ── Hero KPI cards (cost savings / efficiency) ─────────────── */
+        .card.hero-savings {
+            background: linear-gradient(160deg, #064e3b 0%, #065f46 100%);
+            border-color: #10b981;
+        }
+        .card.hero-savings .label { color: #6ee7b7; }
+        .card.hero-savings .value { color: #34d399; }
+
+        .card.hero-efficiency {
+            background: linear-gradient(160deg, #1e3a5f 0%, #1e4976 100%);
+            border-color: #3b82f6;
+        }
+        .card.hero-efficiency .label { color: #93c5fd; }
+        .card.hero-efficiency .value { color: #60a5fa; }
+
+        /* ── Savings breakdown bar ───────────────────────────────────── */
+        .savings-breakdown {
+            background: #0f1320;
+            border: 1px solid #20263a;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .savings-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 14px;
+            color: #f8fafc;
+        }
+        .savings-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+        .savings-row-label { color: #94a3b8; width: 220px; flex-shrink: 0; }
+        .savings-bar-wrap  { flex: 1; background: #1b2235; border-radius: 4px; height: 8px; overflow: hidden; }
+        .savings-bar       { height: 100%; background: #10b981; border-radius: 4px; }
+        .savings-row-val   { color: #34d399; font-weight: 700; width: 72px; text-align: right; flex-shrink: 0; }
+
+        /* ── Efficiency trend note ───────────────────────────────────── */
+        .efficiency-note {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #1e3a5f;
+            border: 1px solid #3b82f6;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 13px;
+            color: #93c5fd;
+            margin-bottom: 16px;
+        }
+        .efficiency-note strong { color: #60a5fa; }
+    </style>
+</head>
+<body>
+
+    <!-- ── Demo Banner ───────────────────────────────────────────────────── -->
+    <div class="demo-banner">
+        <div class="demo-banner-dot"></div>
+        <span class="demo-banner-label">Demo</span>
+        <span>BCAT Command Center — Sample Data Only &nbsp;·&nbsp; Isolated from production &nbsp;·&nbsp; Port 5051</span>
+    </div>
+
+    <!-- ── Command Center Header ─────────────────────────────────────────── -->
+    <div class="cc-header">
+        <div class="cc-brand">BCAT Command Center</div>
+        <div class="cc-company-tabs">
+            <button class="cc-company-tab active" onclick="openCompany(this,'bcat')">BCAT</button>
+            <button class="cc-company-tab" onclick="openCompany(this,'agents')">Agents</button>
+        </div>
+    </div>
+
+    <!-- ── Global Metric Cards (always visible) ──────────────────────────── -->
+    <div id="global-metrics" class="cc-global-metrics"></div>
+
+    <!-- ── Department Subtabs ────────────────────────────────────────────── -->
+    <div id="cc-dept-bar" class="cc-dept-bar">
+        <button class="cc-dept-tab active" onclick="openDept(this,'finance')">Finance</button>
+        <button class="cc-dept-tab" onclick="openDept(this,'operations')">Operations</button>
+        <button class="cc-dept-tab" onclick="openDept(this,'marketing')">Marketing</button>
+        <button class="cc-dept-tab" onclick="openDept(this,'sales')">Sales</button>
+        <button class="cc-dept-tab" onclick="openDept(this,'compliance')">Compliance</button>
+    </div>
+
+    <!-- ── Company Panels ────────────────────────────────────────────────── -->
+
+    <!-- BCAT -->
+    <div id="cc-company-bcat" class="cc-company-panel active">
+        <div id="finance" class="cc-dept-panel active" data-dept="finance">
+            <div id="dashboard"></div>
+        </div>
+        <div id="bcat-operations" class="cc-dept-panel" data-dept="operations">
+            <div id="operations-app"></div>
+        </div>
+        <div id="marketing" class="cc-dept-panel" data-dept="marketing">
+            <div id="marketing-app"></div>
+        </div>
+        <div id="sales" class="cc-dept-panel" data-dept="sales">
+            <div id="sales-app"></div>
+        </div>
+        <div id="bcat-compliance" class="cc-dept-panel" data-dept="compliance">
+            <div id="compliance-app"></div>
+        </div>
+    </div>
+
+    <!-- Agents -->
+    <div id="cc-company-agents" class="cc-company-panel">
+        <div id="agents-panel"></div>
+    </div>
+
+    <!-- ── Scripts ────────────────────────────────────────────────────────── -->
+    <script src="/static/demo_dashboard.js"></script>
+    <script src="/static/marketing.js"></script>
+    <script src="/static/sales.js"></script>
+</body>
+</html>

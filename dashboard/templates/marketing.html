@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marketing Command Center</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='marketing.css') }}">
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div>
+        <h1>Marketing Command Center</h1>
+        <p>Track outreach, campaign performance, and daily follow-up priorities.</p>
+      </div>
+      <nav class="page-nav">
+        <a href="/">Back to Dashboard</a>
+      </nav>
+    </header>
+
+    <section class="kpi-grid">
+      <div class="card">
+        <span class="label">New Leads Today</span>
+        <h2 id="new-leads">{{ marketing.new_leads_today if marketing and marketing.new_leads_today is defined else 0 }}</h2>
+      </div>
+      <div class="card">
+        <span class="label">Emails Sent</span>
+        <h2 id="emails-sent">{{ marketing.emails_sent if marketing and marketing.emails_sent is defined else 0 }}</h2>
+      </div>
+      <div class="card">
+        <span class="label">Reply Rate</span>
+        <h2 id="reply-rate">{{ marketing.reply_rate if marketing and marketing.reply_rate is defined else '0%' }}</h2>
+      </div>
+      <div class="card">
+        <span class="label">Positive Replies</span>
+        <h2 id="positive-replies">{{ marketing.positive_replies if marketing and marketing.positive_replies is defined else 0 }}</h2>
+      </div>
+      <div class="card">
+        <span class="label">Meetings Booked</span>
+        <h2 id="meetings-booked">{{ sales.meetings_booked if sales and sales.meetings_booked is defined else 0 }}</h2>
+      </div>
+      <div class="card">
+        <span class="label">Follow-Ups Due</span>
+        <h2 id="followups-due">{{ sales.followups_due if sales and sales.followups_due is defined else 0 }}</h2>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Channel Performance</h3>
+      </div>
+      <div class="channel-grid">
+        <div class="card">
+          <span class="label">Apollo</span>
+          <p id="apollo-status">Not connected</p>
+        </div>
+        <div class="card">
+          <span class="label">Instantly</span>
+          <p id="instantly-status">Not connected</p>
+        </div>
+        <div class="card">
+          <span class="label">Apify</span>
+          <p id="apify-status">Not connected</p>
+        </div>
+        <div class="card">
+          <span class="label">SEO</span>
+          <p id="seo-status">Coming soon</p>
+        </div>
+        <div class="card">
+          <span class="label">Google Ads</span>
+          <p id="google-ads-status">Coming soon</p>
+        </div>
+        <div class="card">
+          <span class="label">Facebook Ads</span>
+          <p id="facebook-ads-status">Coming soon</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Daily Follow-Up Queue</h3>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Priority</th>
+              <th>Company</th>
+              <th>Contact</th>
+              <th>Channel</th>
+              <th>Stage</th>
+              <th>Next Action</th>
+            </tr>
+          </thead>
+          <tbody id="followup-table-body">
+            <tr>
+              <td>5</td>
+              <td>Acme Manufacturing</td>
+              <td>Jane Smith</td>
+              <td>Cold Email</td>
+              <td>Warm Reply</td>
+              <td>Reply today</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>Midwest Plastics</td>

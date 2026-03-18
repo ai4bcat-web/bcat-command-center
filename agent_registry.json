@@ -1,0 +1,26 @@
+{
+  "FinanceAgent": {
+    "name": "FinanceAgent",
+    "description": "Financial data ingestion and metrics (Ivan Cartage, brokerage, Amazon)",
+    "status": "idle",
+    "last_task": "get_ivan_expense_metrics",
+    "last_heartbeat": "2026-03-18T00:42:30.436222+00:00",
+    "registered_at": "2026-03-10T04:39:58.647878+00:00"
+  },
+  "Dashboard": {
+    "name": "Dashboard",
+    "description": "Flask web dashboard \u2014 serves finance data and agent status",
+    "status": "idle",
+    "last_task": null,
+    "last_heartbeat": "2026-03-18T00:42:30.437865+00:00",
+    "registered_at": "2026-03-10T04:40:25.416093+00:00"
+  },
+  "MarketingAgent": {
+    "name": "MarketingAgent",
+    "description": "Marketing intelligence: SEO, Google Ads, Facebook Ads analysis + implementation",
+    "status": "idle",
+    "last_task": null,
+    "last_heartbeat": "2026-03-18T00:42:30.437766+00:00",
+    "registered_at": "2026-03-10T14:13:44.838654+00:00"
+  }
+}

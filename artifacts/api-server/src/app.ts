@@ -7,16 +7,18 @@
  *   ADMIN_PASSWORD_HASH — bcrypt hash of login password (required)
  *   NODE_ENV            — "production" | "development"
  *   COOKIE_DOMAIN       — e.g. "tryaiden.ai" (optional)
- *   CORS_ORIGIN         — allowed React origin, e.g. "https://app.tryaiden.ai" (optional)
- *   CSV_DATA_DIR        — absolute path to folder containing *.csv files (optional)
+ *   CORS_ORIGIN         — allowed origin for CORS, e.g. "https://app.tryaiden.ai" (optional)
+ *   CSV_DATA_DIR        — absolute path to project root (contains CSVs, templates/, static/)
  *   PORT                — injected by Replit automatically
  */
 
+import path from "path";
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import session from "express-session";
 
+import pagesRouter from "./routes/pages";
 import authRouter from "./routes/auth";
 import dashboardRouter from "./routes/dashboard";
 import healthRouter from "./routes/health";
@@ -30,6 +32,10 @@ declare module "express-session" {
   }
 }
 
+function rootDir(): string {
+  return process.env.CSV_DATA_DIR ?? process.cwd();
+}
+
 const app = express();
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
@@ -40,6 +46,9 @@ app.use(
     credentials: true,
   })
 );
+
+// ── Static files — serve /static/* from project root's static/ folder ─────────
+app.use("/static", express.static(path.join(rootDir(), "static")));
 
 // ── Body + cookie parsing ─────────────────────────────────────────────────────
 app.use(express.json());
@@ -68,18 +77,17 @@ app.use(
   })
 );
 
-// ── Public routes (no auth required) ─────────────────────────────────────────
+// ── Public API routes ─────────────────────────────────────────────────────────
 app.use("/api", healthRouter);   // GET /api/health
-app.use("/api", authRouter);     // POST /api/login, POST /api/logout
+app.use("/api", authRouter);     // POST /api/login, POST /api/logout, GET /api/me
 
-// ── Protected routes (require session.authenticated = true) ──────────────────
+// ── Protected API routes ──────────────────────────────────────────────────────
 app.use("/api", dashboardRouter); // GET /api/dashboard
 app.use("/api", agentsRouter);    // GET /api/agents
 
-// ── Root health ping (Replit deployment probe) ───────────────────────────────
-app.get("/", (_req, res) => {
-  res.json({ status: "ok", service: "bcat-api" });
-});
+// ── HTML page routes (/, /login, POST /login, POST /logout) ──────────────────
+// Must come AFTER /api routes so API paths are not intercepted.
+app.use("/", pagesRouter);
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────
 app.use((_req, res) => {

@@ -34,8 +34,7 @@ dist/
 build/
 .eggs/
 
-# ── Data files (local only — may contain PII / real business data) ────────
-*.csv
+# ── Data files ───────────────────────────────────────────────────────────
 data/
 
 # ── OS / editor ──────────────────────────────────────────────────────────

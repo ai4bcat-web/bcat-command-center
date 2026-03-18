@@ -1,0 +1,30 @@
+{
+  "name": "bcat-api-server",
+  "version": "1.0.0",
+  "description": "BCAT Command Center — Node/Express API server",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "hash-password": "node -e \"const b=require('bcryptjs');const p=process.argv[1];b.hash(p,10).then(h=>console.log(h))\" --"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/express-session": "^1.17.10",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}

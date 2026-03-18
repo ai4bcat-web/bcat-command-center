@@ -203,8 +203,13 @@ export function getBrokerageMetrics(): BrokerageMetrics {
     custMap.set(key, entry);
   }
 
+  type CustEntry = {
+    month: string; customer: string;
+    revenue: number; carrier_pay: number;
+    gross_profit: number; shipment_volume: number;
+  };
   // Group by month, sort by gross_profit desc, take top 10
-  const byMonth = new Map<string, typeof custMap extends Map<any, infer V> ? V[] : never[]>();
+  const byMonth = new Map<string, CustEntry[]>();
   for (const v of custMap.values()) {
     const arr = byMonth.get(v.month) ?? [];
     arr.push(v);

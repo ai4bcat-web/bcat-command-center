@@ -1,18 +1,18 @@
-modules = ["python-3.11"]
+modules = ["nodejs-20", "python-3.11"]
 
-run = "gunicorn dashboard:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile -"
-entrypoint = "dashboard.py"
+run = "bash scripts/start.sh"
+entrypoint = "scripts/start.sh"
 
 [nix]
 channel = "stable-23_11"
 
 [env]
-FLASK_ENV = "production"
+NODE_ENV = "production"
 
 [deployment]
-run = ["sh", "-c", "gunicorn dashboard:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile -"]
+run = ["sh", "-c", "bash scripts/start.sh"]
 deploymentTarget = "cloudrun"
 
 [[ports]]
-localPort = 8080
+localPort = 3000
 externalPort = 80

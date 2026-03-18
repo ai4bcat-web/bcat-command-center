@@ -1,4 +1,6 @@
 import os
+import threading
+import logging
 import config                                                    # must be first — raises if SECRET_KEY missing in prod
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for
 from auth import login_required, verify_credentials
@@ -6,6 +8,19 @@ from finance_agent import FinanceAgent, get_ivan_expense_metrics
 import agent_registry
 import marketing_data as _md
 from agents.marketing_agent import MarketingAgent
+
+# ── Discord bot (runs in background thread if token is set) ───────────────────
+def _start_discord_bot():
+    token = os.environ.get('DISCORD_BOT_TOKEN', '').strip()
+    if not token:
+        return
+    try:
+        import discord_bot  # noqa — importing runs bot.run() at module level
+    except Exception as e:
+        logging.getLogger(__name__).warning('Discord bot failed to start: %s', e)
+
+_discord_thread = threading.Thread(target=_start_discord_bot, daemon=True)
+_discord_thread.start()
 
 # Best Care real-data service layer (imported lazily to avoid startup failure
 # if google-ads package is not yet installed)

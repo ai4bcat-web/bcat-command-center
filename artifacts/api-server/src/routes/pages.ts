@@ -20,13 +20,22 @@ function rootDir(): string {
   return process.env.CSV_DATA_DIR ?? process.cwd();
 }
 
+// public/ (next to this package) takes priority over project templates/
+// so Node.js gets plain HTML while Flask keeps its Jinja2 templates/login.html.
+const PUBLIC_DIR = path.resolve(__dirname, "../../public");
+
 function sendHtml(res: Response, filename: string): void {
-  const filePath = path.join(rootDir(), "templates", filename);
-  if (!fs.existsSync(filePath)) {
-    res.status(404).send(`Template not found: ${filename}`);
+  const publicPath = path.join(PUBLIC_DIR, filename);
+  if (fs.existsSync(publicPath)) {
+    res.sendFile(publicPath);
     return;
   }
-  res.sendFile(filePath);
+  const templatePath = path.join(rootDir(), "templates", filename);
+  if (fs.existsSync(templatePath)) {
+    res.sendFile(templatePath);
+    return;
+  }
+  res.status(404).send(`Template not found: ${filename}`);
 }
 
 // ── GET / — dashboard (protected) ────────────────────────────────────────────

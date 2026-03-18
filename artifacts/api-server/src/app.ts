@@ -23,6 +23,10 @@ import authRouter from "./routes/auth";
 import dashboardRouter from "./routes/dashboard";
 import healthRouter from "./routes/health";
 import agentsRouter from "./routes/agents";
+import marketingRouter from "./routes/marketing";
+import salesRouter from "./routes/sales";
+import bestcareRouter from "./routes/bestcare";
+import aidenRouter from "./routes/aiden";
 
 // ── Type augmentation so TypeScript knows about session fields ────────────────
 declare module "express-session" {
@@ -47,8 +51,11 @@ app.use(
   })
 );
 
-// ── Static files — serve /static/* from project root's static/ folder ─────────
+// ── Static files ──────────────────────────────────────────────────────────────
+// /static/* → project root's static/ folder (dashboard.js, dashboard.css, etc.)
 app.use("/static", express.static(path.join(rootDir(), "static")));
+// /public/* → server-local public/ folder (Node-specific HTML assets)
+app.use("/public", express.static(path.resolve(__dirname, "../../public")));
 
 // ── Body + cookie parsing ─────────────────────────────────────────────────────
 app.use(express.json());
@@ -84,6 +91,10 @@ app.use("/api", authRouter);     // POST /api/login, POST /api/logout, GET /api/
 // ── Protected API routes ──────────────────────────────────────────────────────
 app.use("/api", dashboardRouter); // GET /api/dashboard
 app.use("/api", agentsRouter);    // GET /api/agents
+app.use("/api", marketingRouter); // GET /api/marketing/* (stubs)
+app.use("/api", salesRouter);     // GET /api/sales/* (stubs)
+app.use("/api", bestcareRouter);  // GET /api/best-care/* (stubs)
+app.use("/api", aidenRouter);     // POST /api/aiden/* (Anthropic API)
 
 // ── HTML page routes (/, /login, POST /login, POST /logout) ──────────────────
 // Must come AFTER /api routes so API paths are not intercepted.

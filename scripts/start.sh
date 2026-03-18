@@ -12,7 +12,7 @@ echo "API dir: $API_DIR"
 # Install dependencies if node_modules is missing or package.json changed
 if [ ! -d "$API_DIR/node_modules" ]; then
   echo "Installing npm dependencies..."
-  cd "$API_DIR" && npm install --production=false
+  cd "$API_DIR" && npm install --include=dev
   cd - > /dev/null
 fi
 

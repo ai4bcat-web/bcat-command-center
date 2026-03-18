@@ -19,7 +19,6 @@
             padding: 24px;
         }
 
-        /* ── Card ── */
         .card {
             background: #0d1219;
             border: 1px solid #1e293b;
@@ -30,7 +29,6 @@
             box-shadow: 0 24px 60px rgba(0,0,0,0.5);
         }
 
-        /* ── Brand ── */
         .brand {
             display: flex;
             align-items: center;
@@ -46,36 +44,20 @@
             flex-shrink: 0;
         }
         .brand-text { line-height: 1.2; }
-        .brand-name {
-            font-size: 15px; font-weight: 700; color: #e2e8f0;
-        }
+        .brand-name { font-size: 15px; font-weight: 700; color: #e2e8f0; }
         .brand-sub {
             font-size: 11px; color: #475569; letter-spacing: 0.06em;
             text-transform: uppercase; font-weight: 600;
         }
 
-        /* ── Heading ── */
-        h1 {
-            font-size: 20px;
-            font-weight: 700;
-            color: #e2e8f0;
-            margin-bottom: 6px;
-        }
-        .subtitle {
-            font-size: 13px;
-            color: #64748b;
-            margin-bottom: 28px;
-        }
+        h1 { font-size: 20px; font-weight: 700; color: #e2e8f0; margin-bottom: 6px; }
+        .subtitle { font-size: 13px; color: #64748b; margin-bottom: 28px; }
 
-        /* ── Form ── */
         .field { margin-bottom: 16px; }
         label {
             display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: #94a3b8;
-            margin-bottom: 6px;
-            letter-spacing: 0.02em;
+            font-size: 12px; font-weight: 600; color: #94a3b8;
+            margin-bottom: 6px; letter-spacing: 0.02em;
         }
         input[type="email"],
         input[type="password"] {
@@ -91,27 +73,20 @@
             font-family: inherit;
         }
         input[type="email"]:focus,
-        input[type="password"]:focus {
-            border-color: #0ea5e9;
-        }
+        input[type="password"]:focus { border-color: #0ea5e9; }
         input::placeholder { color: #334155; }
 
-        /* ── Error ── */
         .error-banner {
             background: #1a0c0c;
             border: 1px solid #7f1d1d;
             border-radius: 7px;
             padding: 10px 13px;
-            font-size: 13px;
-            color: #fca5a5;
+            font-size: 13px; color: #fca5a5;
             margin-bottom: 18px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            display: flex; align-items: center; gap: 8px;
         }
         .error-banner::before { content: '⚠'; flex-shrink: 0; }
 
-        /* ── Submit ── */
         button[type="submit"] {
             width: 100%;
             background: #0ea5e9;
@@ -119,22 +94,20 @@
             border: none;
             border-radius: 8px;
             padding: 11px;
-            font-size: 14px;
-            font-weight: 700;
+            font-size: 14px; font-weight: 700;
             cursor: pointer;
             transition: background 0.15s;
             font-family: inherit;
             margin-top: 6px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
         }
         button[type="submit"]:hover { background: #0284c7; }
         button[type="submit"]:active { background: #0369a1; }
 
-        /* ── Footer ── */
         .footer {
             margin-top: 32px;
-            font-size: 11px;
-            color: #334155;
-            text-align: center;
+            font-size: 11px; color: #334155; text-align: center;
         }
     </style>
 </head>
@@ -167,7 +140,7 @@
                 type="email"
                 id="email"
                 name="email"
-                placeholder="you@tryaiden.ai"
+                placeholder="you@bcatcorp.com"
                 value="{{ email or '' }}"
                 autocomplete="username"
                 autofocus
@@ -187,7 +160,7 @@
             >
         </div>
 
-        <button type="submit">Sign in</button>
+        <button type="submit">Initialize Uplink</button>
     </form>
 </div>
 

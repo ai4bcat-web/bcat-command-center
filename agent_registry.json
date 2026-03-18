@@ -4,7 +4,7 @@
     "description": "Financial data ingestion and metrics (Ivan Cartage, brokerage, Amazon)",
     "status": "idle",
     "last_task": "get_ivan_expense_metrics",
-    "last_heartbeat": "2026-03-18T01:03:43.450377+00:00",
+    "last_heartbeat": "2026-03-18T14:45:11.669755+00:00",
     "registered_at": "2026-03-10T04:39:58.647878+00:00"
   },
   "Dashboard": {
@@ -12,15 +12,23 @@
     "description": "Flask web dashboard \u2014 serves finance data and agent status",
     "status": "idle",
     "last_task": null,
-    "last_heartbeat": "2026-03-18T00:41:09.860867+00:00",
+    "last_heartbeat": "2026-03-18T14:45:03.376235+00:00",
     "registered_at": "2026-03-10T04:40:25.416093+00:00"
   },
   "MarketingAgent": {
     "name": "MarketingAgent",
-    "description": "Marketing intelligence: SEO, Google Ads, Facebook Ads analysis + implementation",
+    "description": "Marketing intelligence and campaign analysis",
     "status": "idle",
     "last_task": null,
-    "last_heartbeat": "2026-03-18T00:41:09.860785+00:00",
+    "last_heartbeat": "2026-03-18T14:45:03.376537+00:00",
     "registered_at": "2026-03-10T14:13:44.838654+00:00"
+  },
+  "CoordinatorAgent": {
+    "name": "CoordinatorAgent",
+    "description": "Message routing and agent orchestration",
+    "status": "idle",
+    "last_task": null,
+    "last_heartbeat": "2026-03-18T14:45:03.376782+00:00",
+    "registered_at": "2026-03-18T14:44:58.107001+00:00"
   }
 }

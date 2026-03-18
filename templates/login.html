@@ -125,10 +125,14 @@
     <h1>Sign in</h1>
     <p class="subtitle">Enter your credentials to access the command center.</p>
 
-    <div id="error-banner" class="error-banner" style="display:none"></div>
+    {% if error %}
+    <div class="error-banner">{{ error }}</div>
+    {% endif %}
 
     <form method="POST" action="/login" autocomplete="on">
-        <input type="hidden" name="next" id="next-input" value="">
+        {% if next %}
+        <input type="hidden" name="next" value="{{ next }}">
+        {% endif %}
 
         <div class="field">
             <label for="email">Email</label>
@@ -137,6 +141,7 @@
                 id="email"
                 name="email"
                 placeholder="you@bcatcorp.com"
+                value="{{ email or '' }}"
                 autocomplete="username"
                 autofocus
                 required
@@ -160,31 +165,6 @@
 </div>
 
 <div class="footer">Aiden — BCAT Command Center &nbsp;·&nbsp; Private access only</div>
-
-<script>
-    // Read error/email/next from query string (set by POST /login on failure)
-    const params = new URLSearchParams(window.location.search);
-    const err = params.get('error');
-    const email = params.get('email');
-    const next = params.get('next');
-
-    if (err) {
-        const banner = document.getElementById('error-banner');
-        const messages = {
-            'invalid_credentials': 'Invalid email or password.',
-            'missing_fields': 'Email and password are required.',
-            'server_error': 'Server configuration error. Contact admin.',
-        };
-        banner.textContent = messages[err] || 'Login failed. Please try again.';
-        banner.style.display = 'flex';
-    }
-    if (email) {
-        document.getElementById('email').value = decodeURIComponent(email);
-    }
-    if (next) {
-        document.getElementById('next-input').value = decodeURIComponent(next);
-    }
-</script>
 
 </body>
 </html>

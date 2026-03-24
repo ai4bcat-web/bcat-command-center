@@ -129,6 +129,12 @@ def dashboard():
     return render_template('dashboard.html')
 
 
+@app.route('/domain-map')
+@login_required
+def domain_map():
+    return render_template('domain_map.html')
+
+
 @app.route('/api/dashboard', methods=['GET'])
 @login_required
 def dashboard_api():

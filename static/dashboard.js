@@ -724,11 +724,11 @@ async function loadDashboard() {
         });
     }
 
+    // Initialise Amazon weekly state BEFORE renderDashboard() calls _renderAmazonSection()
+    _initAmazonState(amazon);
+
     renderGlobalMetrics();
     renderDashboard();
-
-    // Initialise Amazon weekly state
-    _initAmazonState(amazon);
 
     // Store data for lazy init of other company panels
     _dashData = data;

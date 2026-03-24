@@ -22,14 +22,22 @@ from agents.coordinator_agent import CoordinatorAgent
 _log = logging.getLogger(__name__)
 
 def _start_discord_bot():
-    if not os.environ.get('DISCORD_BOT_TOKEN', '').strip():
-        _log.info('DISCORD_BOT_TOKEN not set — Discord bot skipped.')
+    token = os.environ.get('DISCORD_BOT_TOKEN', '').strip()
+    print(f"[discord-bot] Thread started. Token present: {bool(token)}", flush=True)
+    if not token:
+        print("[discord-bot] DISCORD_BOT_TOKEN is not set — bot will not start.", flush=True)
+        print("[discord-bot] Add DISCORD_BOT_TOKEN=your_token to .env and restart.", flush=True)
         return
+    print("[discord-bot] Importing discord_bot module...", flush=True)
     try:
         import discord_bot
+        print("[discord-bot] Module loaded. Calling discord_bot.run()...", flush=True)
         discord_bot.run()
+        print("[discord-bot] discord_bot.run() returned (bot stopped).", flush=True)
     except Exception as e:
-        _log.error('Discord bot crashed: %s', e, exc_info=True)
+        import traceback
+        print(f"[discord-bot] CRASHED: {e}", flush=True)
+        traceback.print_exc()
 
 def _start_telegram_bot():
     if not os.environ.get('TELEGRAM_BOT_TOKEN', '').strip():
@@ -132,16 +140,19 @@ def dashboard_api():
     monthly_brokerage_summary = finance_agent.get_monthly_brokerage_summary()
     brokerage_top_customers_by_month = finance_agent.get_brokerage_top_customers_by_month()
     ivan_top_customers_by_month = finance_agent.get_ivan_top_customers_by_month()
+    amazon_metrics = finance_agent.get_amazon_metrics()
 
     total_company_revenue = (
         float(ivan_metrics.get('ivan_cartage_revenue', 0)) +
-        float(brokerage_metrics.get('gross_revenue', 0))
+        float(brokerage_metrics.get('gross_revenue', 0)) +
+        float(amazon_metrics.get('total_bcat_revenue', 0))
     )
 
     return jsonify({
         'report_start_date': '2026-01-01',
         'report_end_date': '2026-03-04',
         'total_company_revenue': total_company_revenue,
+        'amazon': amazon_metrics,
         'brokerage': {
             'gross_revenue': brokerage_metrics.get('gross_revenue', 0),
             'carrier_pay': brokerage_metrics.get('carrier_pay', 0),
@@ -788,8 +799,16 @@ def health():
 # ── Dev server entry point ────────────────────────────────────────────────────
 # Production: use gunicorn (see Procfile / .replit).
 if __name__ == '__main__':
+    # use_reloader=False is required when daemon threads (Discord bot, Telegram
+    # bot) are started at module level.  Werkzeug's reloader forks a child
+    # worker process that re-executes this file, which would launch a second
+    # copy of each bot thread — causing duplicate connections and token
+    # conflicts with Discord.  Disabling the reloader keeps exactly one process
+    # and one bot thread alive.  All other debug features (interactive debugger,
+    # detailed tracebacks, etc.) remain active.
     app.run(
         host=config.HOST,
         port=config.PORT,
         debug=config.DEBUG,
+        use_reloader=False,
     )

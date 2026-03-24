@@ -573,3 +573,199 @@ th {
         padding: 5px 12px;
     }
 }
+
+/* ── Best Care Google Ads Panel ─────────────────────────────────────────── */
+
+.bc-ads-panel {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 0 40px 0;
+}
+
+.bc-sync-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 0 18px 0;
+}
+
+.bc-sync-status {
+    font-size: 0.82rem;
+    color: #64748b;
+}
+
+.bc-sync-btn {
+    padding: 6px 16px;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.bc-sync-btn:hover:not(:disabled) {
+    background: #1d4ed8;
+}
+
+.bc-sync-btn:disabled {
+    background: #334155;
+    cursor: default;
+}
+
+.bc-campaign-tabs {
+    margin-bottom: 10px;
+}
+
+.bc-cred-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 0;
+}
+
+.bc-cred-row {
+    padding: 6px 10px;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    color: #94a3b8;
+}
+
+/* ── Amazon DSP Weekly Section ───────────────────────────────────────────── */
+
+.amazon-section {
+    margin-top: 36px;
+    padding-top: 28px;
+    border-top: 1px solid #1e2a3a;
+}
+
+.amazon-section-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    margin-bottom: 14px;
+    color: #e2e8f0;
+}
+
+/* Week tab strip */
+.amazon-week-tabs {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.amazon-week-tab {
+    position: relative;
+    white-space: nowrap;
+}
+
+/* Green pip on the current-week tab */
+.amazon-current-pip {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+    margin-left: 5px;
+    vertical-align: middle;
+    position: relative;
+    top: -1px;
+}
+
+/* Period label above KPI cards */
+.amazon-period-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #475569;
+    margin-bottom: 10px;
+}
+
+/* Driver table row hover */
+.amazon-driver-row:hover td {
+    background: #131a28;
+}
+
+.amazon-table-hint {
+    font-size: 0.72rem;
+    color: #475569;
+    margin-bottom: 10px;
+}
+
+/* Driver type chips */
+.amazon-type-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 100px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.amazon-type-chip.company {
+    background: #1e3a5f;
+    color: #60a5fa;
+    border: 1px solid #1e4d8c;
+}
+
+.amazon-type-chip.owner-op {
+    background: #1a2e1a;
+    color: #4ade80;
+    border: 1px solid #166534;
+}
+
+/* Drill-down header */
+.amazon-drilldown-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #20263a;
+}
+
+.amazon-back-btn {
+    background: none;
+    border: 1px solid #334155;
+    color: #94a3b8;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+
+.amazon-back-btn:hover {
+    border-color: #64748b;
+    color: #e2e8f0;
+}
+
+.amazon-drilldown-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #f1f5f9;
+}
+
+/* Mock data notice — add via JS if needed */
+.amazon-mock-notice {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #d97706;
+    background: #1c1500;
+    border: 1px solid #78350f;
+    border-radius: 4px;
+    padding: 3px 10px;
+    margin-bottom: 14px;
+}

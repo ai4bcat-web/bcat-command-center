@@ -1,6 +1,8 @@
 import pandas as pd
 import os
 import json
+import datetime
+import random
 try:
     import agent_registry as _registry
     _registry.register("FinanceAgent", "Financial data ingestion and metrics (Ivan Cartage, brokerage, Amazon)")
@@ -386,3 +388,154 @@ class FinanceAgent:
 
         grouped["rank"] = grouped["rank"].astype(int)
         return grouped.to_dict(orient="records")
+
+    def get_amazon_metrics(self):
+        """
+        Returns Amazon DSP trip data for weekly reporting.
+
+        ──────────────────────────────────────────────────────────────────
+        DATA SOURCE: Currently returns MOCK data from _get_amazon_mock_trips().
+
+        To switch to real CSV data, swap the assignment marked below:
+            trips = _get_amazon_mock_trips()      ← current (mock)
+            trips = self._get_amazon_csv_trips()  ← real CSV
+
+        Real CSV path: amazon_loads.csv
+        Primary date field: 'trip_date'  (CSV 'week' column is mapped to it)
+        ──────────────────────────────────────────────────────────────────
+        """
+        # ── MOCK DATA — replace with real CSV when trip-level records exist ──
+        trips = _get_amazon_mock_trips()
+        # trips = self._get_amazon_csv_trips()   # ← uncomment for real CSV data
+
+        total_gross = round(sum(float(t.get("gross_load_revenue", 0)) for t in trips), 2)
+        total_ded   = round(sum(float(t.get("deductions",         0)) for t in trips), 2)
+        total_bcat  = round(sum(float(t.get("bcat_revenue",       0)) for t in trips), 2)
+        driver_set  = {t["driver"] for t in trips}
+
+        return {
+            "trips":               trips,
+            "total_gross_revenue": total_gross,
+            "total_deductions":    total_ded,
+            "total_bcat_revenue":  total_bcat,
+            "driver_count":        len(driver_set),
+        }
+
+    def _get_amazon_csv_trips(self):
+        """
+        Loads trip records from amazon_loads.csv and normalises them to the
+        same shape as mock trips so the frontend receives a consistent schema.
+
+        ──────────────────────────────────────────────────────────────────
+        CURRENT LIMITATION: amazon_loads.csv has one row per driver per
+        week, not one row per trip.  Each CSV row is surfaced as a single
+        record with 'week' mapped to 'trip_date'.
+
+        When the CSV gains real trip-level rows, ensure the file has a
+        'trip_date' (or 'week') column plus the numeric columns below —
+        no further code changes will be required.
+        ──────────────────────────────────────────────────────────────────
+        """
+        if self.amazon_data is None or self.amazon_data.empty:
+            return []
+
+        df = self.amazon_data.copy()
+
+        # Map 'week' → 'trip_date'  (update here if CSV gains a native trip_date)
+        if "week" in df.columns and "trip_date" not in df.columns:
+            df = df.rename(columns={"week": "trip_date"})
+
+        df["trip_id"] = [f"CSV-{i:04d}" for i in range(len(df))]
+        df["route"]   = ""
+        df["stops"]   = None
+
+        return df.to_dict(orient="records")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Amazon mock-data generator  (module-level helper, not a FinanceAgent method)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_amazon_mock_trips():
+    """
+    MOCK DATA — used while trip-level CSV data is not yet available.
+
+    ──────────────────────────────────────────────────────────────────────────
+    REPLACE THIS FUNCTION (or swap to self._get_amazon_csv_trips()) when
+    amazon_loads.csv provides one row per trip.
+
+    DATE FIELD: 'trip_date' (ISO string YYYY-MM-DD) is the primary field
+    used to assign each trip to a Sunday–Saturday week bucket.
+    To change the date field used for week grouping, update:
+      • AMAZON_TRIP_DATE_FIELD constant in static/dashboard.js  (frontend)
+      • the 'trip_date' key written in each dict below           (backend)
+
+    TIMEZONE ASSUMPTION: Dates are plain ISO date strings with no timezone
+    component.  The frontend treats them as local dates in the user's
+    browser timezone.  Expected: US/Central (America/Chicago).
+    ──────────────────────────────────────────────────────────────────────────
+    """
+    rng = random.Random(42)  # fixed seed → deterministic output across requests
+
+    drivers = [
+        {"name": "John Smith",    "type": "company",        "pct": 0.30},
+        {"name": "Mike Davis",    "type": "owner_operator", "pct": 0.10},
+        {"name": "Sarah Johnson", "type": "company",        "pct": 0.30},
+        {"name": "Tom Wilson",    "type": "owner_operator", "pct": 0.12},
+        {"name": "Lisa Chen",     "type": "company",        "pct": 0.28},
+    ]
+
+    routes = [
+        "SEA-PDX", "SEA-SFO", "SEA-OAK", "PDX-SFO",
+        "SEA-LAX", "OAK-LAX", "SFO-LAX", "SEA-SMF",
+        "PDX-RNO", "SEA-BOI",
+    ]
+
+    # Sunday start dates for each week to include
+    week_sundays = [
+        datetime.date(2026, 2, 22),
+        datetime.date(2026, 3,  1),
+        datetime.date(2026, 3,  8),
+        datetime.date(2026, 3, 15),
+        datetime.date(2026, 3, 22),  # current week (partial — only Mon/Tue so far)
+    ]
+
+    trips = []
+    counter = 1
+
+    for week_start in week_sundays:
+        today = datetime.date(2026, 3, 24)
+        work_days = [
+            week_start + datetime.timedelta(days=d)
+            for d in range(7)
+            if (week_start + datetime.timedelta(days=d)).weekday() < 5
+            and (week_start + datetime.timedelta(days=d)) <= today
+        ]
+
+        if not work_days:
+            continue
+
+        for driver in drivers:
+            n = rng.randint(3, 7)
+            trip_days = sorted(rng.choices(work_days, k=min(n, len(work_days) * 2))[:n])
+
+            for day in trip_days:
+                gross = round(rng.uniform(850, 2100), 2)
+                ded   = round(gross * rng.uniform(0.07, 0.13), 2)
+                bcat  = round((gross - ded) * driver["pct"], 2)
+
+                trips.append({
+                    "trip_id":            f"AM-{counter:04d}",
+                    "trip_date":          day.isoformat(),   # PRIMARY date field — see docstring
+                    "driver":             driver["name"],
+                    "driver_type":        driver["type"],
+                    "gross_load_revenue": gross,
+                    "deductions":         ded,
+                    "company_percentage": driver["pct"],
+                    "bcat_revenue":       bcat,
+                    "route":              rng.choice(routes),
+                    "stops":              rng.randint(1, 8),
+                })
+                counter += 1
+
+    return trips

@@ -52,6 +52,337 @@ function findMonthRow(rows, month) {
     return (rows || []).find(row => row.month === month) || null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AMAZON DSP — WEEK UTILITY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// DATE FIELD USED TO ASSIGN A TRIP TO A WEEK:
+//   Primary:  'trip_date'
+//   Fallback: 'week'  (from legacy CSV import)
+//
+// To change the date field (e.g. to 'delivery_date' or 'settlement_date'),
+// update AMAZON_TRIP_DATE_FIELD here AND the 'trip_date' key in
+// finance_agent.py → _get_amazon_mock_trips() / _get_amazon_csv_trips().
+//
+// TIMEZONE ASSUMPTION: dates are ISO YYYY-MM-DD strings parsed as local
+// dates (no UTC shift).  Expected timezone: US/Central (America/Chicago).
+// If the server ever sends UTC timestamps, pre-strip the time component
+// on the server before returning to the frontend.
+// ═══════════════════════════════════════════════════════════════════════════
+
+var AMAZON_TRIP_DATE_FIELD = 'trip_date'; // ← change here to remap the date field
+
+/**
+ * Returns the Sunday that starts the week containing `date`.
+ * Handles both Date objects and YYYY-MM-DD strings (parsed as local dates).
+ * @param {Date|string} date
+ * @returns {Date}  midnight local Sunday
+ */
+function getWeekStart(date) {
+    var d;
+    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        var parts = date.split('-');
+        d = new Date(+parts[0], +parts[1] - 1, +parts[2]); // local midnight, no UTC shift
+    } else {
+        d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+    }
+    var dow = d.getDay(); // 0 = Sunday
+    d.setDate(d.getDate() - dow);
+    return d;
+}
+
+/**
+ * Returns the Saturday that ends the week containing `date`.
+ * @param {Date|string} date
+ * @returns {Date}  midnight local Saturday
+ */
+function getWeekEnd(date) {
+    var start = getWeekStart(date);
+    var end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return end;
+}
+
+/**
+ * Groups trips into Sunday–Saturday week buckets.
+ * Trips with a missing/invalid date field are silently skipped.
+ * @param {Array}  trips  — array of trip objects
+ * @returns {Object}  { "YYYY-MM-DD": [trip, ...], ... }  keyed by Sunday date
+ */
+function groupTripsByWeek(trips) {
+    var groups = {};
+    (trips || []).forEach(function(trip) {
+        var dateVal = trip[AMAZON_TRIP_DATE_FIELD] || trip['week']; // fallback to 'week'
+        if (!dateVal) return;
+        var weekStart = getWeekStart(dateVal);
+        // Produce a plain YYYY-MM-DD key without UTC offset issues
+        var y  = weekStart.getFullYear();
+        var m  = String(weekStart.getMonth() + 1).padStart(2, '0');
+        var dy = String(weekStart.getDate()).padStart(2, '0');
+        var key = y + '-' + m + '-' + dy;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(trip);
+    });
+    return groups;
+}
+
+/**
+ * Formats a human-readable week label.
+ * @param {Date} weekStart  Sunday
+ * @param {Date} weekEnd    Saturday
+ * @returns {string}  e.g. "Mar 3 – Mar 9"
+ */
+function formatWeekLabel(weekStart, weekEnd) {
+    var opts = { month: 'short', day: 'numeric' };
+    return weekStart.toLocaleDateString('en-US', opts) + ' \u2013 ' + weekEnd.toLocaleDateString('en-US', opts);
+}
+
+/**
+ * Returns the ISO date string (YYYY-MM-DD) of the Sunday starting the current week.
+ */
+function currentWeekKey() {
+    var ws = getWeekStart(new Date());
+    var y  = ws.getFullYear();
+    var m  = String(ws.getMonth() + 1).padStart(2, '0');
+    var d  = String(ws.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AMAZON DSP — STATE & RENDERING
+// ═══════════════════════════════════════════════════════════════════════════
+
+var _amazonState = null;
+/*  Shape:
+    {
+      trips:          Array,        all trips (all weeks)
+      weekGroups:     Object,       { "YYYY-MM-DD": [trip, ...] }
+      sortedWeekKeys: Array,        week-start keys, newest first
+      activeWeekKey:  string,       "YYYY-MM-DD" or "all"
+      expandedDriver: string|null   driver name in drill-down, or null
+    }
+*/
+
+function _initAmazonState(amazonData) {
+    var trips      = (amazonData && amazonData.trips) || [];
+    var weekGroups = groupTripsByWeek(trips);
+    var sortedWeekKeys = Object.keys(weekGroups).sort(function(a, b) { return b.localeCompare(a); });
+
+    // Default: current week if it has data, else most recent week
+    var cwk = currentWeekKey();
+    var activeWeekKey = weekGroups[cwk] ? cwk : (sortedWeekKeys[0] || 'all');
+
+    _amazonState = {
+        trips:          trips,
+        weekGroups:     weekGroups,
+        sortedWeekKeys: sortedWeekKeys,
+        activeWeekKey:  activeWeekKey,
+        expandedDriver: null,
+    };
+}
+
+function _getActiveWeekTrips() {
+    if (!_amazonState) return [];
+    if (_amazonState.activeWeekKey === 'all') return _amazonState.trips;
+    return _amazonState.weekGroups[_amazonState.activeWeekKey] || [];
+}
+
+function _renderAmazonSection() {
+    var container = document.getElementById('amazon-section');
+    if (!container || !_amazonState) return;
+
+    var trips          = _getActiveWeekTrips();
+    var activeWeekKey  = _amazonState.activeWeekKey;
+    var expandedDriver = _amazonState.expandedDriver;
+
+    container.innerHTML =
+        '<div class="section-title amazon-section-title">Amazon DSP \u2014 Weekly Performance</div>' +
+        _buildAmazonWeekTabs() +
+        _buildAmazonSummaryCards(trips, activeWeekKey) +
+        (expandedDriver
+            ? _buildDriverDrilldown(expandedDriver, trips)
+            : _buildDriverTable(trips));
+
+    _attachAmazonEvents(container);
+}
+
+function _buildAmazonWeekTabs() {
+    var cwk  = currentWeekKey();
+    var keys = _amazonState.sortedWeekKeys;
+    var active = _amazonState.activeWeekKey;
+
+    var tabsHTML = keys.map(function(key) {
+        var ws    = getWeekStart(key);
+        var we    = getWeekEnd(key);
+        var label = formatWeekLabel(ws, we);
+        var isCurrent = (key === cwk);
+        var isActive  = (key === active);
+        return '<button class="tab-btn amazon-week-tab' + (isActive ? ' active' : '') + '" data-week-key="' + key + '">' +
+            label +
+            (isCurrent ? '<span class="amazon-current-pip" title="Current week"></span>' : '') +
+            '</button>';
+    }).join('');
+
+    tabsHTML += '<button class="tab-btn amazon-week-tab' + (active === 'all' ? ' active' : '') + '" data-week-key="all">All Weeks</button>';
+
+    return '<div class="tabs amazon-week-tabs">' + tabsHTML + '</div>';
+}
+
+function _buildAmazonSummaryCards(trips, activeWeekKey) {
+    var gross      = trips.reduce(function(s, t) { return s + Number(t.gross_load_revenue || 0); }, 0);
+    var deductions = trips.reduce(function(s, t) { return s + Number(t.deductions || 0); }, 0);
+    var net        = trips.reduce(function(s, t) { return s + Number(t.bcat_revenue || 0); }, 0);
+    var drivers    = new Set(trips.map(function(t) { return t.driver; })).size;
+
+    var periodLabel = activeWeekKey === 'all' ? 'All Weeks' : (function() {
+        var ws = getWeekStart(activeWeekKey);
+        var we = getWeekEnd(activeWeekKey);
+        return formatWeekLabel(ws, we);
+    })();
+
+    return '<div class="amazon-period-label">' + periodLabel + '</div>' +
+        '<div class="kpi-grid">' +
+            '<div class="card"><div class="label">Gross Revenue</div><div class="value">' + money(gross) + '</div></div>' +
+            '<div class="card"><div class="label">Total Deductions</div><div class="value">' + money(deductions) + '</div></div>' +
+            '<div class="card"><div class="label">BCAT Net Revenue</div><div class="value positive">' + money(net) + '</div></div>' +
+            '<div class="card"><div class="label">Total Trips</div><div class="value">' + integerFmt(trips.length) + '</div></div>' +
+            '<div class="card"><div class="label">Active Drivers</div><div class="value">' + drivers + '</div></div>' +
+        '</div>';
+}
+
+function _buildDriverTable(trips) {
+    // Aggregate by driver
+    var byDriver = {};
+    trips.forEach(function(t) {
+        if (!byDriver[t.driver]) byDriver[t.driver] = { driver: t.driver, type: t.driver_type, tripList: [] };
+        byDriver[t.driver].tripList.push(t);
+    });
+
+    var rows = Object.values(byDriver).map(function(d) {
+        var gross = d.tripList.reduce(function(s, t) { return s + Number(t.gross_load_revenue || 0); }, 0);
+        var ded   = d.tripList.reduce(function(s, t) { return s + Number(t.deductions || 0); }, 0);
+        var net   = d.tripList.reduce(function(s, t) { return s + Number(t.bcat_revenue || 0); }, 0);
+        return { driver: d.driver, type: d.type, count: d.tripList.length, gross: gross, ded: ded, net: net };
+    }).sort(function(a, b) { return b.net - a.net; });
+
+    if (!rows.length) {
+        return '<div class="table-card"><div class="empty-state">No trips for this period.</div></div>';
+    }
+
+    var typeChip = function(t) {
+        return t === 'company'
+            ? '<span class="amazon-type-chip company">Company</span>'
+            : '<span class="amazon-type-chip owner-op">Owner Op.</span>';
+    };
+
+    var rowsHTML = rows.map(function(r) {
+        return '<tr class="amazon-driver-row" data-driver="' + r.driver + '" style="cursor:pointer;">' +
+            '<td>' + r.driver + '</td>' +
+            '<td>' + typeChip(r.type) + '</td>' +
+            '<td style="text-align:center;">' + r.count + '</td>' +
+            '<td>' + money(r.gross) + '</td>' +
+            '<td>' + money(r.ded) + '</td>' +
+            '<td class="positive">' + money(r.net) + '</td>' +
+            '<td style="color:#475569;font-size:0.72rem;">View \u25b8</td>' +
+            '</tr>';
+    }).join('');
+
+    return '<div class="table-card">' +
+        '<div class="amazon-table-hint">Click a driver row to view their trip history</div>' +
+        '<div class="table-wrap"><table>' +
+        '<thead><tr>' +
+            '<th>Driver</th><th>Type</th><th style="text-align:center;">Trips</th>' +
+            '<th>Gross Revenue</th><th>Deductions</th><th>BCAT Revenue</th><th></th>' +
+        '</tr></thead>' +
+        '<tbody>' + rowsHTML + '</tbody>' +
+        '</table></div></div>';
+}
+
+function _buildDriverDrilldown(driverName, trips) {
+    var driverTrips = trips
+        .filter(function(t) { return t.driver === driverName; })
+        .sort(function(a, b) { return (a.trip_date || '').localeCompare(b.trip_date || ''); });
+
+    var gross = driverTrips.reduce(function(s, t) { return s + Number(t.gross_load_revenue || 0); }, 0);
+    var ded   = driverTrips.reduce(function(s, t) { return s + Number(t.deductions || 0); }, 0);
+    var net   = driverTrips.reduce(function(s, t) { return s + Number(t.bcat_revenue || 0); }, 0);
+    var dtype = driverTrips.length ? (driverTrips[0].driver_type || '') : '';
+
+    var typeChip = dtype === 'company'
+        ? '<span class="amazon-type-chip company">Company</span>'
+        : '<span class="amazon-type-chip owner-op">Owner Op.</span>';
+
+    var header =
+        '<div class="amazon-drilldown-header">' +
+            '<button class="amazon-back-btn" data-action="back">\u2190 All Drivers</button>' +
+            '<span class="amazon-drilldown-name">' + driverName + '</span>' +
+            typeChip +
+        '</div>';
+
+    if (!driverTrips.length) {
+        return '<div class="table-card">' + header +
+            '<div class="empty-state">No trips for this driver in this period.</div></div>';
+    }
+
+    var summaryCards =
+        '<div class="kpi-grid" style="margin:14px 0 16px;">' +
+            '<div class="card"><div class="label">Trips</div><div class="value">' + driverTrips.length + '</div></div>' +
+            '<div class="card"><div class="label">Gross Revenue</div><div class="value">' + money(gross) + '</div></div>' +
+            '<div class="card"><div class="label">Deductions</div><div class="value">' + money(ded) + '</div></div>' +
+            '<div class="card"><div class="label">BCAT Revenue</div><div class="value positive">' + money(net) + '</div></div>' +
+        '</div>';
+
+    var tripRowsHTML = driverTrips.map(function(t) {
+        return '<tr>' +
+            '<td style="font-family:monospace;font-size:0.77rem;">' + (t.trip_id || '\u2014') + '</td>' +
+            '<td>' + (t.trip_date || '\u2014') + '</td>' +
+            '<td>' + (t.route || '\u2014') + '</td>' +
+            '<td style="text-align:center;">' + (t.stops != null ? t.stops : '\u2014') + '</td>' +
+            '<td>' + money(t.gross_load_revenue) + '</td>' +
+            '<td>' + money(t.deductions) + '</td>' +
+            '<td class="positive">' + money(t.bcat_revenue) + '</td>' +
+            '</tr>';
+    }).join('');
+
+    return '<div class="table-card">' + header + summaryCards +
+        '<div class="table-wrap"><table>' +
+        '<thead><tr>' +
+            '<th>Trip ID</th><th>Date</th><th>Route</th><th style="text-align:center;">Stops</th>' +
+            '<th>Gross</th><th>Deductions</th><th>BCAT Revenue</th>' +
+        '</tr></thead>' +
+        '<tbody>' + tripRowsHTML + '</tbody>' +
+        '</table></div></div>';
+}
+
+function _attachAmazonEvents(container) {
+    // Week tab clicks
+    container.querySelectorAll('.amazon-week-tab').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            _amazonState.activeWeekKey  = btn.dataset.weekKey;
+            _amazonState.expandedDriver = null;
+            _renderAmazonSection();
+        });
+    });
+
+    // Driver row → drill-down
+    container.querySelectorAll('.amazon-driver-row').forEach(function(row) {
+        row.addEventListener('click', function() {
+            _amazonState.expandedDriver = row.dataset.driver;
+            _renderAmazonSection();
+        });
+    });
+
+    // Back button
+    var backBtn = container.querySelector('[data-action="back"]');
+    if (backBtn) {
+        backBtn.addEventListener('click', function() {
+            _amazonState.expandedDriver = null;
+            _renderAmazonSection();
+        });
+    }
+}
+
 function renderBrokerageCustomersSection(grouped, activeMonth, monthlyBrokerage) {
     const months = sortMonthsDescending(Object.keys(grouped));
     const rows = grouped[activeMonth] || [];
@@ -243,6 +574,7 @@ async function loadDashboard() {
 
     const brokerage = data.brokerage || {};
     const ivan = data.ivan || {};
+    const amazon = data.amazon || {};
 
     const monthlyBrokerage = brokerage.monthly_brokerage_summary || [];
     const ivanMonthly = ivan.ivan_monthly_true_profit || [];
@@ -335,6 +667,8 @@ async function loadDashboard() {
             </div>
 
             ${renderBrokerageCustomersSection(brokerageCustomersGrouped, activeBrokerageMonth, monthlyBrokerage)}
+
+            <div id="amazon-section" class="amazon-section"></div>
         `;
 
         const brokerageCanvas = document.getElementById("brokerageChart");
@@ -375,7 +709,10 @@ async function loadDashboard() {
             });
         }
 
-        document.querySelectorAll(".tab-btn").forEach(btn => {
+        // Render Amazon section (has its own internal event handlers)
+        _renderAmazonSection();
+
+        document.querySelectorAll(".tab-btn:not(.amazon-week-tab)").forEach(btn => {
             btn.addEventListener("click", () => {
                 const group = btn.dataset.tabGroup;
                 const month = btn.dataset.month;
@@ -389,6 +726,9 @@ async function loadDashboard() {
 
     renderGlobalMetrics();
     renderDashboard();
+
+    // Initialise Amazon weekly state
+    _initAmazonState(amazon);
 
     // Store data for lazy init of other company panels
     _dashData = data;
@@ -490,9 +830,207 @@ function _onWorkspaceActivated(company, dept) {
         }
     }
 
+    if (company === 'bestcare' && dept === 'finance') {
+        var container = document.getElementById('bestcare-finance-content');
+        if (container) _loadBestCareFinance(container);
+    }
+
     if (company === 'aiden') {
         if (typeof AidenApp !== 'undefined') AidenApp.init();
     }
+}
+
+// ── Best Care Finance / Google Ads Panel ──────────────────────────────────
+
+function _loadBestCareFinance(container) {
+    container.innerHTML = '<div style="padding:40px 0;color:#94a3b8;text-align:center;">Loading Google Ads data…</div>';
+    Promise.all([
+        fetch('/api/best-care/sync-status').then(function(r) { return r.json(); }),
+        fetch('/api/best-care/google-ads/monthly').then(function(r) { return r.json(); }),
+        fetch('/api/best-care/google-ads/campaigns').then(function(r) { return r.json(); }),
+    ]).then(function(results) {
+        _renderBestCareFinancePanel(container, results[0], results[1], results[2]);
+    }).catch(function(err) {
+        container.innerHTML = '<div style="padding:40px;color:#ef4444;">Failed to load: ' + err.message + '</div>';
+    });
+}
+
+function _renderBestCareFinancePanel(container, syncStatus, monthly, campaigns) {
+    var configured = syncStatus && syncStatus.configured;
+    var synced     = syncStatus && syncStatus.synced_at;
+
+    if (!configured) {
+        container.innerHTML = _buildAdsNotConfiguredHTML(syncStatus);
+        return;
+    }
+
+    var syncedAt   = synced ? new Date(syncStatus.synced_at).toLocaleString() : 'Never';
+    var syncBtnId  = 'bc-sync-btn-' + Date.now();
+    var monthTabsId = 'bc-campaign-tabs-' + Date.now();
+
+    // Build KPI totals from monthly data
+    var totalSpend = 0, totalClicks = 0, totalConv = 0, totalImpr = 0;
+    var latestMonth = null, latestSpend = 0, latestConv = 0;
+    if (Array.isArray(monthly) && monthly.length > 0) {
+        monthly.forEach(function(m) {
+            totalSpend  += (m.cost || 0);
+            totalClicks += (m.clicks || 0);
+            totalConv   += (m.conversions || 0);
+            totalImpr   += (m.impressions || 0);
+        });
+        var sorted = monthly.slice().sort(function(a, b) { return (b.month || '').localeCompare(a.month || ''); });
+        latestMonth = sorted[0];
+        latestSpend = latestMonth.cost || 0;
+        latestConv  = latestMonth.conversions || 0;
+    }
+    var costPerLead = totalConv > 0 ? totalSpend / totalConv : null;
+    var latestCPL   = latestConv > 0 ? latestSpend / latestConv : null;
+
+    function fmt$(n) { return n == null ? '—' : '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+    function fmtN(n) { return n == null ? '—' : n.toLocaleString('en-US'); }
+
+    // Unique months for campaign tabs
+    var months = [];
+    if (Array.isArray(campaigns) && campaigns.length > 0) {
+        var seen = {};
+        campaigns.forEach(function(c) { if (c.month && !seen[c.month]) { seen[c.month] = 1; months.push(c.month); } });
+        months.sort(function(a, b) { return b.localeCompare(a); });
+    }
+    var activeMonth = months[0] || '';
+
+    function buildCampaignTable(month) {
+        var rows = Array.isArray(campaigns) ? campaigns.filter(function(c) { return c.month === month; }) : [];
+        if (!rows.length) return '<div class="empty-state">No campaign data for this month.</div>';
+        return '<div class="table-wrap"><table><thead><tr>' +
+            '<th>Campaign</th><th>Spend</th><th>Clicks</th><th>Impr.</th><th>Conversions</th><th>Cost/Lead</th>' +
+            '</tr></thead><tbody>' +
+            rows.map(function(r) {
+                var cpl = r.conversions > 0 ? fmt$(r.cost / r.conversions) : '—';
+                return '<tr>' +
+                    '<td>' + (r.campaign_name || '—') + '</td>' +
+                    '<td>' + fmt$(r.cost) + '</td>' +
+                    '<td>' + fmtN(r.clicks) + '</td>' +
+                    '<td>' + fmtN(r.impressions) + '</td>' +
+                    '<td>' + fmtN(r.conversions) + '</td>' +
+                    '<td>' + cpl + '</td>' +
+                    '</tr>';
+            }).join('') +
+            '</tbody></table></div>';
+    }
+
+    var monthTabsHTML = months.map(function(m) {
+        return '<button class="tab-btn bc-month-tab' + (m === activeMonth ? ' active' : '') + '" data-month="' + m + '">' + m + '</button>';
+    }).join('');
+
+    var monthlyTableHTML = '<div class="table-wrap"><table><thead><tr>' +
+        '<th>Month</th><th>Spend</th><th>Clicks</th><th>Impr.</th><th>Conversions</th><th>Cost/Lead</th>' +
+        '</tr></thead><tbody>' +
+        (Array.isArray(monthly) ? monthly.slice().sort(function(a,b){return (b.month||'').localeCompare(a.month||'');}).map(function(m) {
+            var cpl = m.conversions > 0 ? fmt$(m.cost / m.conversions) : '—';
+            return '<tr>' +
+                '<td>' + (m.month || '—') + '</td>' +
+                '<td>' + fmt$(m.cost) + '</td>' +
+                '<td>' + fmtN(m.clicks) + '</td>' +
+                '<td>' + fmtN(m.impressions) + '</td>' +
+                '<td>' + fmtN(m.conversions) + '</td>' +
+                '<td>' + cpl + '</td>' +
+                '</tr>';
+        }).join('') : '') +
+        '</tbody></table></div>';
+
+    container.innerHTML =
+        '<div class="bc-ads-panel">' +
+
+        // Sync bar
+        '<div class="bc-sync-bar">' +
+            '<span class="bc-sync-status">Last synced: ' + syncedAt + '</span>' +
+            '<button id="' + syncBtnId + '" class="bc-sync-btn">Sync Now</button>' +
+        '</div>' +
+
+        // KPI cards — all-time
+        '<div class="section-title">Google Ads — All-Time</div>' +
+        '<div class="kpi-grid">' +
+            '<div class="card"><div class="label">Total Spend</div><div class="value">' + fmt$(totalSpend) + '</div></div>' +
+            '<div class="card"><div class="label">Total Clicks</div><div class="value">' + fmtN(totalClicks) + '</div></div>' +
+            '<div class="card"><div class="label">Total Conversions</div><div class="value">' + fmtN(totalConv) + '</div></div>' +
+            '<div class="card"><div class="label">Cost / Lead</div><div class="value">' + fmt$(costPerLead) + '</div></div>' +
+        '</div>' +
+
+        // KPI cards — latest month
+        (latestMonth ? (
+            '<div class="section-title">' + latestMonth.month + ' (Latest)</div>' +
+            '<div class="kpi-grid">' +
+                '<div class="card"><div class="label">Spend</div><div class="value">' + fmt$(latestSpend) + '</div></div>' +
+                '<div class="card"><div class="label">Clicks</div><div class="value">' + fmtN(latestMonth.clicks) + '</div></div>' +
+                '<div class="card"><div class="label">Conversions</div><div class="value">' + fmtN(latestConv) + '</div></div>' +
+                '<div class="card"><div class="label">Cost / Lead</div><div class="value">' + fmt$(latestCPL) + '</div></div>' +
+            '</div>'
+        ) : '') +
+
+        // Monthly summary table
+        '<div class="section-title">Monthly Summary</div>' +
+        '<div class="table-card">' + (monthly && monthly.length ? monthlyTableHTML : '<div class="empty-state">No monthly data — run a sync first.</div>') + '</div>' +
+
+        // Campaign breakdown with month tabs
+        '<div class="section-title">Campaign Breakdown</div>' +
+        (months.length ? (
+            '<div class="tabs bc-campaign-tabs" id="' + monthTabsId + '">' + monthTabsHTML + '</div>' +
+            '<div class="table-card" id="bc-campaign-table">' + buildCampaignTable(activeMonth) + '</div>'
+        ) : '<div class="table-card"><div class="empty-state">No campaign data — run a sync first.</div></div>') +
+
+        '</div>';
+
+    // Sync button
+    var syncBtn = document.getElementById(syncBtnId);
+    if (syncBtn) {
+        syncBtn.addEventListener('click', function() {
+            syncBtn.disabled = true;
+            syncBtn.textContent = 'Syncing…';
+            fetch('/api/best-care/sync/google-ads', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function() { _loadBestCareFinance(container); })
+                .catch(function(err) {
+                    syncBtn.disabled = false;
+                    syncBtn.textContent = 'Sync Now';
+                    alert('Sync failed: ' + err.message);
+                });
+        });
+    }
+
+    // Campaign month tabs
+    var tabsEl = document.getElementById(monthTabsId);
+    if (tabsEl) {
+        tabsEl.addEventListener('click', function(e) {
+            var btn = e.target.closest('.bc-month-tab');
+            if (!btn) return;
+            tabsEl.querySelectorAll('.bc-month-tab').forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            var tableEl = document.getElementById('bc-campaign-table');
+            if (tableEl) tableEl.innerHTML = buildCampaignTable(btn.dataset.month);
+        });
+    }
+}
+
+function _buildAdsNotConfiguredHTML(syncStatus) {
+    var customerId = (syncStatus && syncStatus.customer_id) ? syncStatus.customer_id : 'not set';
+    var creds = [
+        'GOOGLE_ADS_DEVELOPER_TOKEN',
+        'GOOGLE_ADS_CLIENT_ID',
+        'GOOGLE_ADS_CLIENT_SECRET',
+        'GOOGLE_ADS_REFRESH_TOKEN',
+        'GOOGLE_ADS_LOGIN_CUSTOMER_ID',
+        'BEST_CARE_GOOGLE_ADS_CUSTOMER_ID',
+    ];
+    return '<div class="bc-ads-panel">' +
+        '<div class="section-title">Google Ads — Not Configured</div>' +
+        '<div class="table-card">' +
+        '<p style="color:#94a3b8;margin:0 0 12px 0;">Add the following credentials to <code>.env</code> to enable Google Ads data:</p>' +
+        '<div class="bc-cred-list">' +
+        creds.map(function(k) { return '<div class="bc-cred-row"><code>' + k + '</code></div>'; }).join('') +
+        '</div>' +
+        '<p style="color:#94a3b8;margin:12px 0 0 0;">Customer ID detected: <code>' + customerId + '</code></p>' +
+        '</div>' +
+        '</div>';
 }
 
 function renderMarketingDashboard() {

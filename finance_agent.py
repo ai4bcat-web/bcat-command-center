@@ -458,14 +458,27 @@ class FinanceAgent:
         TOTALS NOTE: All aggregate values are computed only from qualifying
         trips (the > $100 filter is applied before this method returns data).
         """
-        relay_path = os.path.join(self.local_data_path, AMAZON_RELAY_CSV_PATH)
-        if os.path.exists(relay_path):
-            trips       = parse_amazon_relay_csv(relay_path)
-            data_source = "relay_csv"
-        else:
-            # Fallback to mock until relay CSV is uploaded
-            trips       = _get_amazon_mock_trips()
-            data_source = "mock"
+        # Priority: 1) database  2) relay CSV file  3) mock
+        trips = None
+        data_source = "mock"
+        try:
+            from models import AmazonTrip
+            from extensions import db as _db
+            rows = AmazonTrip.query.order_by(AmazonTrip.trip_date).all()
+            if rows:
+                trips = [r.to_dict() for r in rows]
+                data_source = "database"
+        except Exception:
+            pass
+
+        if trips is None:
+            relay_path = os.path.join(self.local_data_path, AMAZON_RELAY_CSV_PATH)
+            if os.path.exists(relay_path):
+                trips       = parse_amazon_relay_csv(relay_path)
+                data_source = "relay_csv"
+            else:
+                trips       = _get_amazon_mock_trips()
+                data_source = "mock"
 
         total_revenue = round(sum(float(t.get("trip_revenue",       t.get("gross_load_revenue", 0))) for t in trips), 2)
         total_ded     = round(sum(float(t.get("deductions",         0)) for t in trips), 2)

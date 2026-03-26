@@ -215,3 +215,74 @@ class IvanInvoice(db.Model):
             'paymentDate': self.payment_date or '',
             'createdAt': self.created_at.isoformat() if self.created_at else ''
         }
+
+
+class AmazonTrip(db.Model):
+    """Persistent store for Amazon Relay trip rows uploaded via Discord."""
+    __tablename__ = 'amazon_trips'
+
+    id                  = db.Column(db.Integer,     primary_key=True)
+    trip_id             = db.Column(db.String(100), unique=True, nullable=True)
+    trip_date           = db.Column(db.String(20),  default='')
+    driver              = db.Column(db.String(200), default='')
+    driver_type         = db.Column(db.String(50),  default='company')
+    gross_load_revenue  = db.Column(db.Float,       default=0.0)
+    deductions          = db.Column(db.Float,       default=0.0)
+    company_percentage  = db.Column(db.Float,       default=0.0)
+    bcat_revenue        = db.Column(db.Float,       default=0.0)
+    trip_revenue        = db.Column(db.Float,       default=0.0)
+    route               = db.Column(db.String(100), default='')
+    stops               = db.Column(db.Integer,     nullable=True)
+    status              = db.Column(db.String(100), default='')
+    uploaded_at         = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'trip_id':            self.trip_id,
+            'trip_date':          self.trip_date,
+            'driver':             self.driver,
+            'driver_type':        self.driver_type,
+            'gross_load_revenue': self.gross_load_revenue,
+            'deductions':         self.deductions,
+            'company_percentage': self.company_percentage,
+            'bcat_revenue':       self.bcat_revenue,
+            'trip_revenue':       self.trip_revenue,
+            'route':              self.route,
+            'stops':              self.stops,
+            'status':             self.status,
+        }
+
+
+def upsert_amazon_trips(trips: list) -> int:
+    """
+    Save a list of trip dicts to the database, upserting by trip_id.
+    Returns the number of rows inserted/updated.
+    Call this inside a Flask app context.
+    """
+    count = 0
+    for t in trips:
+        tid = (t.get('trip_id') or '').strip() or None
+        if tid:
+            row = AmazonTrip.query.filter_by(trip_id=tid).first()
+        else:
+            row = None
+
+        if row is None:
+            row = AmazonTrip(trip_id=tid)
+            db.session.add(row)
+
+        row.trip_date          = t.get('trip_date')          or ''
+        row.driver             = t.get('driver')             or ''
+        row.driver_type        = t.get('driver_type')        or 'company'
+        row.gross_load_revenue = float(t.get('gross_load_revenue') or 0)
+        row.deductions         = float(t.get('deductions')         or 0)
+        row.company_percentage = float(t.get('company_percentage') or 0)
+        row.bcat_revenue       = float(t.get('bcat_revenue')       or 0)
+        row.trip_revenue       = float(t.get('trip_revenue')       or t.get('gross_load_revenue') or 0)
+        row.route              = t.get('route')  or ''
+        row.stops              = t.get('stops')
+        row.status             = t.get('status') or ''
+        count += 1
+
+    db.session.commit()
+    return count

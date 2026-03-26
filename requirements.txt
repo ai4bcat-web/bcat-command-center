@@ -1,10 +1,18 @@
 # MultiAgent Operations — Python dependencies
-# Generated from .venv — Python 3.14
 # Install: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 
 # Web framework + production server
 Flask==3.1.3
 gunicorn==21.2.0
+
+# Auth + security
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+Flask-Login==0.6.3
+Flask-Bcrypt==1.0.1
+Flask-Limiter==3.5.0
+Flask-WTF==1.2.1
+psycopg2-binary
 
 # Data
 pandas==3.0.1
@@ -26,7 +34,7 @@ google-auth-httplib2==0.3.0
 schedule==1.2.2
 
 # Google Ads API (Best Care integration)
-google-ads==25.1.0
+google-ads>=28.0.0
 
-# HTTP requests (competitor intel, 8x8 fallback)
+# HTTP requests
 requests==2.32.3

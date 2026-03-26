@@ -15,6 +15,7 @@ if config.DATABASE_URL:
     with app.app_context():
         try:
             from extensions import db
+            import models  # noqa: F401 — ensures all models are registered before create_all
             db.create_all()
             print("[startup] DB tables created/verified.", flush=True)
         except Exception as e:

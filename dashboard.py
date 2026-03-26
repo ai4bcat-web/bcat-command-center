@@ -109,6 +109,10 @@ def load_user(user_id):
 if config.DATABASE_URL:
     app.config['SQLALCHEMY_DATABASE_URI']        = config.DATABASE_URL
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['SQLALCHEMY_ENGINE_OPTIONS']      = {
+        'pool_pre_ping': True,   # test connection before use — fixes SSL drop errors
+        'pool_recycle':  300,    # recycle connections every 5 min
+    }
 
     db.init_app(app)
     migrate.init_app(app, db)

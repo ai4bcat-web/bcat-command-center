@@ -49,8 +49,9 @@ def _start_telegram_bot():
     except Exception as e:
         _log.error('Telegram bot crashed: %s', e, exc_info=True)
 
-threading.Thread(target=_start_discord_bot, daemon=True, name='discord-bot').start()
-threading.Thread(target=_start_telegram_bot, daemon=True, name='telegram-bot').start()
+# Bot threads are started in the __main__ block below (not at import time)
+# so that Flask CLI commands, wsgi.py, and gunicorn don't accidentally
+# launch duplicate bot connections.
 
 # Best Care real-data service layer (imported lazily to avoid startup failure
 # if google-ads package is not yet installed)
@@ -77,26 +78,40 @@ app.config['PERMANENT_SESSION_LIFETIME']  = config.PERMANENT_SESSION_LIFETIME
 # ── Extensions ────────────────────────────────────────────────────────────────
 from extensions import db, migrate, login_manager, bcrypt, limiter, csrf
 
-if config.DATABASE_URL:
-    app.config['SQLALCHEMY_DATABASE_URI']       = config.DATABASE_URL
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['WTF_CSRF_ENABLED']               = config.WTF_CSRF_ENABLED
+# These always init regardless of DB — login_manager must be attached before
+# any request hits a @login_required route, even in local dev without a DB.
+app.config['WTF_CSRF_ENABLED'] = config.WTF_CSRF_ENABLED
+bcrypt.init_app(app)
+limiter.init_app(app)
+csrf.init_app(app)
 
+login_manager.init_app(app)
+login_manager.login_view    = 'login'
+login_manager.login_message = ''
+
+@login_manager.user_loader
+def load_user(user_id):
+    if not config.DATABASE_URL:
+        from flask_login import UserMixin
+        class _DevUser(UserMixin):
+            id    = 0
+            email = config.ADMIN_EMAIL
+            name  = 'Admin'
+            role  = 'admin'
+            is_admin = True
+            def has_permission(self, _): return True
+        u = _DevUser()
+        u.id = int(user_id)
+        return u
+    from models import User
+    return User.query.get(int(user_id))
+
+if config.DATABASE_URL:
+    app.config['SQLALCHEMY_DATABASE_URI']        = config.DATABASE_URL
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
     migrate.init_app(app, db)
-    bcrypt.init_app(app)
-    limiter.init_app(app)
-    csrf.init_app(app)
-
-    login_manager.init_app(app)
-    login_manager.login_view    = 'login'
-    login_manager.login_message = ''
-
-    @login_manager.user_loader
-    def load_user(user_id):
-        from models import User
-        return User.query.get(int(user_id))
 
     # Register CLI commands
     from cli import create_admin, seed_roles, create_user, list_users, reset_password
@@ -151,17 +166,23 @@ def login():
                 return redirect(next_url)
             error = 'Invalid email or password.'
         else:
-            # Fallback: legacy single-admin env-var auth (dev/no-DB mode)
+            # Fallback: env-var auth for local dev (no DB)
             from werkzeug.security import check_password_hash
+            from flask_login import UserMixin
             stored_email = (config.ADMIN_EMAIL or '').strip().lower()
             stored_hash  = (config.ADMIN_PASSWORD_HASH or '').strip()
             if (email.lower() == stored_email
                     and stored_hash
                     and check_password_hash(stored_hash, password)):
-                from flask import session as _session
-                _session.permanent = True
-                _session['authenticated'] = True
-                _session['user_email']    = email
+                # Create a minimal user so Flask-Login's current_user works
+                class _DevUser(UserMixin):
+                    id    = 0
+                    email = stored_email
+                    name  = 'Admin'
+                    role  = 'admin'
+                    is_admin = True
+                    def has_permission(self, _): return True
+                login_user(_DevUser(), remember=True)
                 next_url = request.form.get('next') or '/'
                 if not next_url.startswith('/'):
                     next_url = '/'
@@ -1151,6 +1172,39 @@ def ivan_invoice_delete(iid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/amazon/status')
+@login_required
+def amazon_status():
+    """Debug endpoint — shows Amazon data source and DB table status."""
+    result = {
+        'db_enabled': _DB_ENABLED,
+        'data_source': 'unknown',
+        'trip_count': 0,
+        'unique_drivers': [],
+        'unique_weeks': [],
+        'last_uploaded': None,
+        'table_exists': False,
+    }
+    if _DB_ENABLED:
+        try:
+            from models import AmazonTrip
+            from extensions import db as _db
+            rows = AmazonTrip.query.order_by(AmazonTrip.uploaded_at.desc()).all()
+            result['table_exists'] = True
+            result['trip_count'] = len(rows)
+            result['unique_drivers'] = sorted({r.driver for r in rows if r.driver})
+            result['unique_weeks'] = sorted({r.trip_date[:7] for r in rows if r.trip_date})
+            result['last_uploaded'] = rows[0].uploaded_at.isoformat() if rows else None
+            result['data_source'] = 'database' if rows else 'mock (db empty)'
+        except Exception as e:
+            result['data_source'] = f'error: {e}'
+    else:
+        import os
+        relay_path = 'amazon_relay.csv'
+        result['data_source'] = 'relay_csv' if os.path.exists(relay_path) else 'mock'
+    return jsonify(result)
+
+
 @app.route('/ivan/export')
 @login_required
 def ivan_export_page():
@@ -1251,13 +1305,12 @@ def ivan_import():
 # ── Dev server entry point ────────────────────────────────────────────────────
 # Production: use gunicorn (see Procfile / .replit).
 if __name__ == '__main__':
-    # use_reloader=False is required when daemon threads (Discord bot, Telegram
-    # bot) are started at module level.  Werkzeug's reloader forks a child
-    # worker process that re-executes this file, which would launch a second
-    # copy of each bot thread — causing duplicate connections and token
-    # conflicts with Discord.  Disabling the reloader keeps exactly one process
-    # and one bot thread alive.  All other debug features (interactive debugger,
-    # detailed tracebacks, etc.) remain active.
+    # Start bots only here — not at import time — so Flask CLI commands and
+    # gunicorn/wsgi.py don't accidentally spawn duplicate bot connections.
+    threading.Thread(target=_start_discord_bot, daemon=True, name='discord-bot').start()
+    threading.Thread(target=_start_telegram_bot, daemon=True, name='telegram-bot').start()
+    # use_reloader=False: prevents Werkzeug from forking a child that would
+    # re-enter this block and start a second set of bot threads.
     app.run(
         host=config.HOST,
         port=config.PORT,

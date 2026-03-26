@@ -491,6 +491,7 @@ async def process_single_csv(
 
         # ── Persist to database so data survives deploys ──────────────────
         db_count = 0
+        db_error = None
         try:
             import sys
             sys.path.insert(0, str(PROJECT_ROOT))
@@ -502,7 +503,8 @@ async def process_single_csv(
                 db_count = upsert_amazon_trips(trips)
             logger.info(f"[{filename}] amazon_relay: {db_count} trips saved to database")
         except Exception as e:
-            logger.warning(f"[{filename}] DB save skipped (no DB or error): {e}")
+            db_error = str(e)
+            logger.warning(f"[{filename}] DB save failed: {e}")
 
         logger.info(
             f"[{filename}] amazon_relay: {new_count} new rows + "
@@ -512,7 +514,8 @@ async def process_single_csv(
             f"Amazon Relay trips updated — **{new_count}** new rows added.\n"
             + (f"**{preserved}** rows from prior weeks preserved.\n" if preserved else "")
             + f"Total on file: **{total_rows}** rows.\n"
-            + (f"**{db_count}** trips saved to database.\n" if db_count else "")
+            + (f"✅ **{db_count}** trips saved to database.\n" if db_count else "")
+            + (f"⚠️ DB save failed: `{db_error}`\n" if db_error else "")
             + f"Refresh the dashboard to see updated Amazon DSP numbers."
         )
         try:

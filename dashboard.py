@@ -1152,6 +1152,7 @@ def ivan_invoice_delete(iid):
 
 
 @app.route('/api/ivan/import', methods=['POST'])
+@csrf.exempt
 @login_required
 def ivan_import():
     """One-time bulk import endpoint. Skips records that already exist."""

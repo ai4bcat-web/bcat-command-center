@@ -5,15 +5,15 @@ Usage: gunicorn wsgi:app -c gunicorn.conf.py
 from dashboard import app  # noqa: F401
 import config
 
-# Run DB migrations and admin seed on startup (production only)
+# Create DB tables and seed admin on startup (production only)
 if config.DATABASE_URL:
     with app.app_context():
         try:
-            from flask_migrate import upgrade
-            upgrade()
-            print("[startup] DB migrations applied.", flush=True)
+            from extensions import db
+            db.create_all()
+            print("[startup] DB tables created/verified.", flush=True)
         except Exception as e:
-            print(f"[startup] Migration warning: {e}", flush=True)
+            print(f"[startup] DB setup warning: {e}", flush=True)
 
         try:
             from cli import create_admin

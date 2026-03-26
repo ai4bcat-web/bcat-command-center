@@ -81,7 +81,7 @@ if config.DATABASE_URL:
     app.config['SQLALCHEMY_DATABASE_URI']       = config.DATABASE_URL
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['WTF_CSRF_ENABLED']               = config.WTF_CSRF_ENABLED
-    app.config['RATELIMIT_STORAGE_URI']          = config.REDIS_URL if config.REDIS_URL and config.REDIS_URL != 'memory://' and config.REDIS_URL.startswith('redis') else 'memory://'
+
 
     db.init_app(app)
     migrate.init_app(app, db)

@@ -10,7 +10,7 @@ load_dotenv()
 
 # ── Environment detection ─────────────────────────────────────────────────────
 FLASK_ENV = os.environ.get('FLASK_ENV', 'development')
-IS_PRODUCTION = FLASK_ENV == 'production'
+IS_PRODUCTION = FLASK_ENV == 'production' or os.environ.get('IS_PRODUCTION', '').lower() in ('true', '1', 'yes')
 
 # ── Core Flask ────────────────────────────────────────────────────────────────
 SECRET_KEY = os.environ.get('SECRET_KEY')
@@ -47,3 +47,26 @@ APP_BASE_URL = os.environ.get('APP_BASE_URL', 'https://app.tryaiden.ai')
 # Comma-separated list of allowed origins for API calls (if CORS is needed).
 _raw_origins = os.environ.get('ALLOWED_ORIGINS', APP_BASE_URL)
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(',') if o.strip()]
+
+# ── Database ──────────────────────────────────────────────────────────────────
+# Railway injects DATABASE_URL automatically.
+# For local dev use: postgresql://user:pass@localhost/bcat
+_raw_db_url = os.environ.get('DATABASE_URL', '')
+# Render/Railway may still use legacy 'postgres://' prefix — SQLAlchemy requires 'postgresql://'
+DATABASE_URL = _raw_db_url.replace('postgres://', 'postgresql://', 1) if _raw_db_url else ''
+
+SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+# Railway Redis add-on injects REDIS_URL. Falls back to in-memory for single-instance deploys.
+REDIS_URL = os.environ.get('REDIS_URL', 'memory://')
+
+# ── CSRF ──────────────────────────────────────────────────────────────────────
+WTF_CSRF_ENABLED    = IS_PRODUCTION   # disabled in dev for easier API testing
+WTF_CSRF_TIME_LIMIT = 3600            # 1 hour
+
+# ── Admin seed credentials (used only by 'flask create-admin' CLI command) ────
+# After the admin user is in the database these env vars are no longer needed for login.
+SEED_ADMIN_EMAIL    = os.environ.get('SEED_ADMIN_EMAIL',    ADMIN_EMAIL)
+SEED_ADMIN_PASSWORD = os.environ.get('SEED_ADMIN_PASSWORD', '')
+SEED_ADMIN_NAME     = os.environ.get('SEED_ADMIN_NAME',     'Admin')

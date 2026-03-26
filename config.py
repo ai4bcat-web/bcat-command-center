@@ -51,7 +51,8 @@ ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(',') if o.strip()]
 # ── Database ──────────────────────────────────────────────────────────────────
 # Railway injects DATABASE_URL automatically.
 # For local dev use: postgresql://user:pass@localhost/bcat
-_raw_db_url = os.environ.get('DATABASE_URL', '')
+# APP_DATABASE_URL takes priority (avoids Railway auto-injecting internal-only DATABASE_URL)
+_raw_db_url = os.environ.get('APP_DATABASE_URL') or os.environ.get('DATABASE_URL', '')
 # Render/Railway may still use legacy 'postgres://' prefix — SQLAlchemy requires 'postgresql://'
 DATABASE_URL = _raw_db_url.replace('postgres://', 'postgresql://', 1) if _raw_db_url else ''
 

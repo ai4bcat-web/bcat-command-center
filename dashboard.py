@@ -1000,6 +1000,157 @@ def health():
     return jsonify(status)
 
 
+# ── Ivan Cartage Equipment API ────────────────────────────────────────────────
+
+@app.route('/api/ivan/equipment', methods=['GET'])
+@login_required
+def ivan_equipment_list():
+    from models import IvanEquipment
+    items = IvanEquipment.query.order_by(IvanEquipment.unit_number).all()
+    return jsonify([e.to_dict() for e in items])
+
+@app.route('/api/ivan/equipment', methods=['POST'])
+@login_required
+def ivan_equipment_create():
+    from models import IvanEquipment
+    from extensions import db as _db
+    d = request.get_json()
+    e = IvanEquipment(
+        id=d['id'], type=d.get('type','truck'), unit_number=d.get('unitNumber',''),
+        nickname=d.get('nickname',''), vin=d.get('vin',''), plate=d.get('plate',''),
+        make=d.get('make',''), model=d.get('model',''), year=d.get('year'),
+        mileage=d.get('mileage'), ownership=d.get('ownership','owned'),
+        insured=d.get('insured', True), dot_inspection_date=d.get('dotInspectionDate',''),
+        active=d.get('active', True), notes=d.get('notes','')
+    )
+    _db.session.add(e)
+    _db.session.commit()
+    return jsonify(e.to_dict()), 201
+
+@app.route('/api/ivan/equipment/<eid>', methods=['PUT'])
+@login_required
+def ivan_equipment_update(eid):
+    from models import IvanEquipment
+    from extensions import db as _db
+    e = IvanEquipment.query.get_or_404(eid)
+    d = request.get_json()
+    e.type=d.get('type', e.type); e.unit_number=d.get('unitNumber', e.unit_number)
+    e.nickname=d.get('nickname', e.nickname); e.vin=d.get('vin', e.vin)
+    e.plate=d.get('plate', e.plate); e.make=d.get('make', e.make)
+    e.model=d.get('model', e.model); e.year=d.get('year', e.year)
+    e.mileage=d.get('mileage', e.mileage); e.ownership=d.get('ownership', e.ownership)
+    e.insured=d.get('insured', e.insured)
+    e.dot_inspection_date=d.get('dotInspectionDate', e.dot_inspection_date)
+    e.active=d.get('active', e.active); e.notes=d.get('notes', e.notes)
+    _db.session.commit()
+    return jsonify(e.to_dict())
+
+@app.route('/api/ivan/equipment/<eid>', methods=['DELETE'])
+@login_required
+def ivan_equipment_delete(eid):
+    from models import IvanEquipment
+    from extensions import db as _db
+    e = IvanEquipment.query.get_or_404(eid)
+    _db.session.delete(e)
+    _db.session.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/ivan/tasks', methods=['GET'])
+@login_required
+def ivan_tasks_list():
+    from models import IvanTask
+    items = IvanTask.query.order_by(IvanTask.due_date).all()
+    return jsonify([t.to_dict() for t in items])
+
+@app.route('/api/ivan/tasks', methods=['POST'])
+@login_required
+def ivan_task_create():
+    from models import IvanTask
+    from extensions import db as _db
+    d = request.get_json()
+    t = IvanTask(
+        id=d['id'], equip_id=d['equipId'], title=d.get('title',''),
+        due_date=d.get('dueDate',''), priority=d.get('priority','med'),
+        status=d.get('status','upcoming'), notes=d.get('notes',''),
+        auto_dot=d.get('autoDot', False)
+    )
+    _db.session.add(t)
+    _db.session.commit()
+    return jsonify(t.to_dict()), 201
+
+@app.route('/api/ivan/tasks/<tid>', methods=['PUT'])
+@login_required
+def ivan_task_update(tid):
+    from models import IvanTask
+    from extensions import db as _db
+    t = IvanTask.query.get_or_404(tid)
+    d = request.get_json()
+    t.title=d.get('title', t.title); t.due_date=d.get('dueDate', t.due_date)
+    t.priority=d.get('priority', t.priority); t.status=d.get('status', t.status)
+    t.notes=d.get('notes', t.notes); t.auto_dot=d.get('autoDot', t.auto_dot)
+    _db.session.commit()
+    return jsonify(t.to_dict())
+
+@app.route('/api/ivan/tasks/<tid>', methods=['DELETE'])
+@login_required
+def ivan_task_delete(tid):
+    from models import IvanTask
+    from extensions import db as _db
+    t = IvanTask.query.get_or_404(tid)
+    _db.session.delete(t)
+    _db.session.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/ivan/invoices', methods=['GET'])
+@login_required
+def ivan_invoices_list():
+    from models import IvanInvoice
+    items = IvanInvoice.query.order_by(IvanInvoice.date.desc()).all()
+    return jsonify([i.to_dict() for i in items])
+
+@app.route('/api/ivan/invoices', methods=['POST'])
+@login_required
+def ivan_invoice_create():
+    from models import IvanInvoice
+    from extensions import db as _db
+    d = request.get_json()
+    inv = IvanInvoice(
+        id=d['id'], equip_id=d['equipId'], date=d.get('date',''),
+        vendor=d.get('vendor',''), description=d.get('description',''),
+        amount=d.get('amount', 0), invoice_number=d.get('invoiceNumber',''),
+        payment_method=d.get('paymentMethod',''), payment_date=d.get('paymentDate','')
+    )
+    _db.session.add(inv)
+    _db.session.commit()
+    return jsonify(inv.to_dict()), 201
+
+@app.route('/api/ivan/invoices/<iid>', methods=['PUT'])
+@login_required
+def ivan_invoice_update(iid):
+    from models import IvanInvoice
+    from extensions import db as _db
+    inv = IvanInvoice.query.get_or_404(iid)
+    d = request.get_json()
+    inv.date=d.get('date', inv.date); inv.vendor=d.get('vendor', inv.vendor)
+    inv.description=d.get('description', inv.description)
+    inv.amount=d.get('amount', inv.amount)
+    inv.invoice_number=d.get('invoiceNumber', inv.invoice_number)
+    inv.payment_method=d.get('paymentMethod', inv.payment_method)
+    inv.payment_date=d.get('paymentDate', inv.payment_date)
+    _db.session.commit()
+    return jsonify(inv.to_dict())
+
+@app.route('/api/ivan/invoices/<iid>', methods=['DELETE'])
+@login_required
+def ivan_invoice_delete(iid):
+    from models import IvanInvoice
+    from extensions import db as _db
+    inv = IvanInvoice.query.get_or_404(iid)
+    _db.session.delete(inv)
+    _db.session.commit()
+    return jsonify({'ok': True})
+
+
 # ── Dev server entry point ────────────────────────────────────────────────────
 # Production: use gunicorn (see Procfile / .replit).
 if __name__ == '__main__':

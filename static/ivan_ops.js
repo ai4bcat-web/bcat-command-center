@@ -7,15 +7,16 @@
  *   IvanOpsApp.mountEquipment(containerId)  — render Equipment tab
  *   IvanOpsApp.mountDrivers(containerId)    — render Drivers tab
  *
- * Data persistence: localStorage (keys prefixed with 'bcat_ivan_')
+ * Data persistence: PostgreSQL via REST API (/api/ivan/*)
+ * Drivers: still stored in localStorage (LS_DRIVERS).
  *
  * Architecture notes:
- *   - Equipment records, maintenance tasks, invoices, and drivers are stored
- *     in localStorage as JSON arrays. Each store has a dedicated LS key.
+ *   - Equipment records, maintenance tasks, and invoices are stored in
+ *     PostgreSQL via the Flask API. Drivers remain in localStorage.
  *   - Invoice uploads (Phase 1): metadata + filename stored only. No binary
  *     file content is stored client-side. Phase 2 would add server-side upload
  *     and text extraction from PDF/image.
- *   - Insurance toggle: persisted immediately to localStorage on change.
+ *   - Insurance toggle: persisted immediately via API on change.
  *   - Driver ↔ truck link: driver.assignedTruckId references an equipment.id.
  *   - Event delegation is used throughout so innerHTML replacements do not
  *     require re-binding. The container element gets one listener set per mount.
@@ -24,16 +25,13 @@
 var IvanOpsApp = (function () {
     'use strict';
 
-    // ── localStorage keys ────────────────────────────────────────────────
-    var LS_EQUIPMENT   = 'bcat_ivan_equipment';
-    var LS_MAINTENANCE = 'bcat_ivan_maintenance';
-    var LS_INVOICES    = 'bcat_ivan_invoices';
-    var LS_DRIVERS     = 'bcat_ivan_drivers';
+    // ── localStorage keys (drivers only) ─────────────────────────────────
+    var LS_DRIVERS = 'bcat_ivan_drivers';
 
     // ── In-memory stores ─────────────────────────────────────────────────
     var _equipment   = [];
-    var _maintenance = [];
-    var _invoices    = [];
+    var _maintenance = [];   // tasks, shaped like old schema for rendering compat
+    var _invoices    = [];   // invoices, shaped like old schema for rendering compat
     var _drivers     = [];
 
     // ── UI state ─────────────────────────────────────────────────────────
@@ -66,95 +64,90 @@ var IvanOpsApp = (function () {
         border:  '#20263a'
     };
 
-    // ── Persistence helpers ───────────────────────────────────────────────
-    function _load(key) {
+    // ── localStorage helpers (drivers only) ───────────────────────────────
+    function _loadLS(key) {
         try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : []; }
         catch (e) { return []; }
     }
-    function _save(key, data) {
+    function _saveLS(key, data) {
         try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) {}
     }
+
+    // ── ID and date helpers ───────────────────────────────────────────────
     function _genId() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     }
     function _nowIso() { return new Date().toISOString(); }
     function _today()  { return new Date().toISOString().slice(0, 10); }
 
-    // ── Seed sample data on first run ─────────────────────────────────────
-    function _seedIfEmpty() {
-        if (_equipment.length === 0) {
-            _equipment = [
-                { id: 'eq-001', type: 'truck',   unitNumber: 'T-01', nickname: 'Big Red',
-                  vin: '1HGCM82633A004352', plate: 'IL-XJ4829', make: 'Freightliner',
-                  model: 'Cascadia', year: 2019, mileage: 412000, ownership: 'owned',
-                  dotInspectionDate: '', notes: 'Regular highway routes', insured: true,  active: true, createdAt: _nowIso() },
-                { id: 'eq-002', type: 'truck',   unitNumber: 'T-02', nickname: 'Silver',
-                  vin: '3HSCUAPR5CN219876', plate: 'IL-LM9934', make: 'International',
-                  model: 'LT', year: 2021, mileage: 198000, ownership: 'owned',
-                  dotInspectionDate: '', notes: '', insured: true, active: true, createdAt: _nowIso() },
-                { id: 'eq-003', type: 'trailer', unitNumber: 'TR-01', nickname: '',
-                  vin: '', plate: 'IL-TR1122', make: 'Wabash',
-                  model: 'DuraPlate 53ft', year: 2018, mileage: null, ownership: 'leased',
-                  dotInspectionDate: '', notes: '53ft dry van', insured: false, active: true, createdAt: _nowIso() }
-            ];
-            _save(LS_EQUIPMENT, _equipment);
-        }
-
-        if (_maintenance.length === 0) {
-            var p = function (d) { var x = new Date(); x.setDate(x.getDate() - d); return x.toISOString().slice(0, 10); };
-            var f = function (d) { var x = new Date(); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10); };
-            _maintenance = [
-                { maintenanceTaskId: 'mt-001', equipmentId: 'eq-001', equipmentType: 'truck',
-                  title: 'Oil & Filter Change', description: '15W-40 full synthetic, check all fluids',
-                  dueDate: p(5), priority: 'high', status: 'overdue',
-                  milageDue: 425000, vendor: 'Chicago Truck Service', estimatedCost: 350, actualCost: null,
-                  createdAt: p(30), completedAt: null },
-                { maintenanceTaskId: 'mt-002', equipmentId: 'eq-001', equipmentType: 'truck',
-                  title: 'Annual DOT Inspection', description: 'Annual DOT safety inspection — must pass before next run',
-                  dueDate: f(14), priority: 'high', status: 'upcoming',
-                  milageDue: null, vendor: 'State Certified Shop', estimatedCost: 200, actualCost: null,
-                  createdAt: p(10), completedAt: null },
-                { maintenanceTaskId: 'mt-003', equipmentId: 'eq-002', equipmentType: 'truck',
-                  title: 'Tire Rotation & Inspection', description: 'Check tread depth front and rear',
-                  dueDate: f(30), priority: 'medium', status: 'upcoming',
-                  milageDue: 210000, vendor: null, estimatedCost: 150, actualCost: null,
-                  createdAt: p(5), completedAt: null },
-                { maintenanceTaskId: 'mt-004', equipmentId: 'eq-002', equipmentType: 'truck',
-                  title: 'Brake Inspection & Service', description: 'Front and rear brake pad and rotor check',
-                  dueDate: p(15), priority: 'high', status: 'completed',
-                  milageDue: null, vendor: 'Midwest Brake Co', estimatedCost: 800, actualCost: 920,
-                  createdAt: p(45), completedAt: p(14) },
-                { maintenanceTaskId: 'mt-005', equipmentId: 'eq-003', equipmentType: 'trailer',
-                  title: 'Landing Gear Lubrication', description: 'Grease landing gear, check seals and wiring',
-                  dueDate: f(7), priority: 'low', status: 'upcoming',
-                  milageDue: null, vendor: null, estimatedCost: 75, actualCost: null,
-                  createdAt: p(3), completedAt: null }
-            ];
-            _save(LS_MAINTENANCE, _maintenance);
-        }
-
-        // No seed invoices — invoice data should only come from user input.
-
-        if (_drivers.length === 0) {
-            _drivers = [
-                { id: 'drv-001', name: 'Ivan Petrenko', phone: '(312) 555-0192',
-                  email: 'ivan.p@ivancartage.com', cdl: 'CDL-A IL-8823901',
-                  status: 'active', driverType: 'owner_operator', assignedTruckId: 'eq-001',
-                  notes: 'Owner-operator', createdAt: _nowIso() }
-            ];
-            _save(LS_DRIVERS, _drivers);
-        }
+    // ── API helpers ───────────────────────────────────────────────────────
+    function _api(method, path, body) {
+        var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+        if (body) opts.body = JSON.stringify(body);
+        return fetch(path, opts).then(function(r) { return r.json(); });
     }
 
-    // ── Init ─────────────────────────────────────────────────────────────
-    function _init() {
-        _equipment   = _load(LS_EQUIPMENT);
-        _maintenance = _load(LS_MAINTENANCE);
-        _invoices    = _load(LS_INVOICES);
-        _drivers     = _load(LS_DRIVERS);
-        _seedIfEmpty();
+    // ── Map API task → internal format (old field names for rendering compat) ──
+    function _taskFromApi(t) {
+        return {
+            maintenanceTaskId: t.id,
+            equipmentId:       t.equipId,
+            equipmentType:     '', // not stored in new schema; filled from equipment lookup
+            title:             t.title,
+            description:       t.notes || '',
+            dueDate:           t.dueDate || '',
+            priority:          t.priority === 'med' ? 'medium' : (t.priority || 'medium'),
+            status:            t.status === 'complete' ? 'completed' : (t.status || 'upcoming'),
+            milageDue:         null,
+            vendor:            '',
+            estimatedCost:     null,
+            actualCost:        null,
+            autoDot:           t.autoDot || false,
+            createdAt:         t.createdAt || '',
+            completedAt:       null,
+            _apiId:            t.id   // keep API id for PUT/DELETE calls
+        };
     }
-    _init();
+
+    // ── Map API invoice → internal format (old field names for rendering compat) ──
+    function _invoiceFromApi(inv) {
+        return {
+            invoiceId:     inv.id,
+            equipmentId:   inv.equipId,
+            invoiceDate:   inv.date || '',
+            vendor:        inv.vendor || '',
+            invoiceNumber: inv.invoiceNumber || '',
+            totalAmount:   inv.amount || 0,
+            description:   inv.description || '',
+            paymentMethod: inv.paymentMethod || null,
+            paymentDate:   inv.paymentDate || null,
+            fileRef:       null,
+            _apiId:        inv.id   // keep API id for PUT/DELETE calls
+        };
+    }
+
+    // ── Load all data from API, then call cb() ────────────────────────────
+    function _loadAll(cb) {
+        Promise.all([
+            fetch('/api/ivan/equipment').then(function(r){ return r.json(); }),
+            fetch('/api/ivan/tasks').then(function(r){ return r.json(); }),
+            fetch('/api/ivan/invoices').then(function(r){ return r.json(); })
+        ]).then(function(results) {
+            _equipment = results[0];
+            // Enrich tasks with equipmentType from equipment lookup
+            _maintenance = results[1].map(function(t) {
+                var task = _taskFromApi(t);
+                var eq = _equipment.find(function(e) { return e.id === task.equipmentId; });
+                task.equipmentType = eq ? eq.type : 'truck';
+                return task;
+            });
+            _invoices = results[2].map(_invoiceFromApi);
+            if (cb) cb();
+        }).catch(function(e) {
+            console.error('Ivan data load failed', e);
+            if (cb) cb();
+        });
+    }
 
     // ── Summary calculations ──────────────────────────────────────────────
     function calculateEquipmentSummary() {
@@ -212,13 +205,6 @@ var IvanOpsApp = (function () {
 
     function getEquipmentInvoices(equipId) {
         return _invoices.filter(function (inv) { return inv.equipmentId === equipId; });
-    }
-
-    function toggleInsuranceStatus(equipId) {
-        var eq = _equipment.find(function (e) { return e.id === equipId; });
-        if (!eq) return;
-        eq.insured = !eq.insured;
-        _save(LS_EQUIPMENT, _equipment);
     }
 
     function _findEquip(id)  { return _equipment.find(function (e) { return e.id === id; }) || null; }
@@ -285,63 +271,14 @@ var IvanOpsApp = (function () {
         return '<span class="ivan-badge ivan-badge-done" title="' + title + '">Due ' + _fmtDate(nextStr) + '</span>';
     }
 
-    // ── CRUD ──────────────────────────────────────────────────────────────
-    function _addEquipment(data) {
-        data.id = 'eq-' + _genId(); data.createdAt = _nowIso();
-        _equipment.push(data); _save(LS_EQUIPMENT, _equipment);
-    }
-    function _updateEquipment(id, data) {
-        var i = _equipment.findIndex(function (e) { return e.id === id; });
-        if (i >= 0) { _equipment[i] = Object.assign({}, _equipment[i], data); _save(LS_EQUIPMENT, _equipment); }
-    }
-    function _addMaintenance(data) {
-        data.maintenanceTaskId = 'mt-' + _genId(); data.createdAt = _nowIso(); data.completedAt = null;
-        _maintenance.push(data); _save(LS_MAINTENANCE, _maintenance);
-    }
-    function _updateMaintenance(id, data) {
-        var i = _maintenance.findIndex(function (m) { return m.maintenanceTaskId === id; });
-        if (i >= 0) { _maintenance[i] = Object.assign({}, _maintenance[i], data); _save(LS_MAINTENANCE, _maintenance); }
-    }
-    function _addInvoice(data) {
-        data.invoiceId = 'inv-' + _genId(); data.createdAt = _nowIso();
-        _invoices.push(data); _save(LS_INVOICES, _invoices);
-    }
-    function _addDriver(data) {
-        data.id = 'drv-' + _genId(); data.createdAt = _nowIso();
-        _drivers.push(data); _save(LS_DRIVERS, _drivers);
-    }
-    function _updateDriver(id, data) {
-        var i = _drivers.findIndex(function (d) { return d.id === id; });
-        if (i >= 0) { _drivers[i] = Object.assign({}, _drivers[i], data); _save(LS_DRIVERS, _drivers); }
-    }
+    // ── _syncDotInspectionTasks — API-backed ──────────────────────────────
+    function _syncDotInspectionTasks(cb) {
+        var today = _today();
+        var pending = [];
 
-    // Delete — cascades maintenance + invoices when deleting equipment
-    function _deleteEquipment(id) {
-        _equipment   = _equipment.filter(function (e)   { return e.id !== id; });
-        _maintenance = _maintenance.filter(function (m)  { return m.equipmentId !== id; });
-        _invoices    = _invoices.filter(function (inv)   { return inv.equipmentId !== id; });
-        _save(LS_EQUIPMENT, _equipment);
-        _save(LS_MAINTENANCE, _maintenance);
-        _save(LS_INVOICES, _invoices);
-    }
-    function _deleteMaintenance(id) {
-        _maintenance = _maintenance.filter(function (m) { return m.maintenanceTaskId !== id; });
-        _save(LS_MAINTENANCE, _maintenance);
-    }
-    function _deleteInvoice(id) {
-        _invoices = _invoices.filter(function (inv) { return inv.invoiceId !== id; });
-        _save(LS_INVOICES, _invoices);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // EQUIPMENT TAB — HTML builders
-    // ══════════════════════════════════════════════════════════════════════
-
-    function _syncDotInspectionTasks() {
-        var today = _today(), changed = false;
         _equipment.filter(function (e) { return e.active; }).forEach(function (e) {
             var needsTask = false;
-            var dueDate = today; // default due date for "not set" case
+            var dueDate = today;
 
             if (!e.dotInspectionDate) {
                 needsTask = true;
@@ -358,46 +295,51 @@ var IvanOpsApp = (function () {
             });
 
             if (needsTask && !existing) {
-                _maintenance.push({
-                    maintenanceTaskId: 'dot-' + _genId(),
-                    equipmentId:  e.id,
-                    equipmentType: e.type,
-                    title:        'DOT Inspection',
-                    description:  'Annual DOT inspection required.',
-                    dueDate:      dueDate,
-                    priority:     'high',
-                    status:       dueDate < today ? 'overdue' : 'upcoming',
-                    vendor:       '',
-                    estimatedCost: null,
-                    actualCost:   null,
-                    autoDot:      true,
-                    createdAt:    _nowIso(),
-                    completedAt:  null
-                });
-                changed = true;
+                var newId = 'dot-' + _genId();
+                var task = {
+                    id:       newId,
+                    equipId:  e.id,
+                    title:    'DOT Inspection',
+                    dueDate:  dueDate,
+                    priority: 'high',
+                    status:   dueDate < today ? 'upcoming' : 'upcoming',
+                    notes:    'Annual DOT inspection required.',
+                    autoDot:  true
+                };
+                pending.push(_api('POST', '/api/ivan/tasks', task));
             } else if (!needsTask && existing) {
-                _maintenance = _maintenance.filter(function (m) { return m.maintenanceTaskId !== existing.maintenanceTaskId; });
-                changed = true;
+                pending.push(_api('DELETE', '/api/ivan/tasks/' + existing.maintenanceTaskId));
             }
         });
-        if (changed) _save(LS_MAINTENANCE, _maintenance);
+
+        if (pending.length === 0) {
+            if (cb) cb();
+            return;
+        }
+
+        Promise.all(pending).then(function() {
+            if (cb) cb();
+        }).catch(function(err) {
+            console.error('DOT sync error', err);
+            if (cb) cb();
+        });
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // EQUIPMENT TAB — HTML builders
+    // ══════════════════════════════════════════════════════════════════════
 
     function _renderEquipmentTab() {
         var container = document.getElementById(_equipCid);
         if (!container) return;
 
-        // Auto-sync DOT inspection tasks
-        _syncDotInspectionTasks();
-
-        // Auto-mark overdue tasks
-        var today = _today(), changed = false;
+        // Auto-mark overdue tasks (in-memory only, status update happens on next full reload)
+        var today = _today();
         _maintenance.forEach(function (m) {
             if (m.status !== 'completed' && m.dueDate < today && m.status !== 'overdue') {
-                m.status = 'overdue'; changed = true;
+                m.status = 'overdue';
             }
         });
-        if (changed) _save(LS_MAINTENANCE, _maintenance);
 
         var summary = calculateEquipmentSummary();
         var filtered = _filteredEquipment();
@@ -1021,7 +963,7 @@ var IvanOpsApp = (function () {
     }
 
     // ── Equipment event binding (once per container) ──────────────────────
-    function _bindEquipEvents(container) {
+    function _attachEquipmentListeners(container) {
         // Delegate all clicks
         container.addEventListener('click', function (e) {
             var btn = e.target.closest('[data-action]');
@@ -1059,24 +1001,35 @@ var IvanOpsApp = (function () {
                 data.active  = true;
                 var eid = btn.dataset.editid;
                 if (eid) {
-                    _updateEquipment(eid, data);
                     // If DOT inspection date is set and next due is in the future,
-                    // remove any open DOT inspection tasks for this equipment.
+                    // delete any open auto-DOT tasks for this equipment via API.
+                    var dotTasksToDelete = [];
                     if (data.dotInspectionDate) {
                         var next = new Date(data.dotInspectionDate);
                         next.setFullYear(next.getFullYear() + 1);
                         if (next.toISOString().slice(0, 10) >= _today()) {
-                            var before = _maintenance.length;
-                            _maintenance = _maintenance.filter(function (m) {
-                                return !(m.equipmentId === eid && m.status !== 'completed'
-                                    && (m.autoDot || m.title === 'DOT Inspection'));
+                            dotTasksToDelete = _maintenance.filter(function (m) {
+                                return m.equipmentId === eid && m.status !== 'completed'
+                                    && (m.autoDot || m.title === 'DOT Inspection');
                             });
-                            if (_maintenance.length !== before) _save(LS_MAINTENANCE, _maintenance);
                         }
                     }
-                } else { _addEquipment(data); }
-                _closeModal('ivan-equip-modal');
-                _renderEquipmentTab();
+                    var deletePromises = dotTasksToDelete.map(function(m) {
+                        return _api('DELETE', '/api/ivan/tasks/' + m.maintenanceTaskId);
+                    });
+                    Promise.all(deletePromises).then(function() {
+                        return _api('PUT', '/api/ivan/equipment/' + eid, data);
+                    }).then(function() {
+                        _closeModal('ivan-equip-modal');
+                        _loadAll(function() { _renderEquipmentTab(); });
+                    });
+                } else {
+                    data.id = 'eq-' + _genId();
+                    _api('POST', '/api/ivan/equipment', data).then(function() {
+                        _closeModal('ivan-equip-modal');
+                        _loadAll(function() { _renderEquipmentTab(); });
+                    });
+                }
                 return;
             }
 
@@ -1112,48 +1065,60 @@ var IvanOpsApp = (function () {
             if (a === 'save-maint') {
                 var data = _readForm('ivan-maint-modal');
                 if (!data.equipmentId || !data.title || !data.dueDate) { alert('Equipment, Title, and Due Date are required.'); return; }
-                data.estimatedCost = data.estimatedCost ? parseFloat(data.estimatedCost) : null;
-                data.milageDue     = data.milageDue     ? parseInt(data.milageDue, 10)   : null;
-                var eq = _findEquip(data.equipmentId);
-                data.equipmentType = eq ? eq.type : 'truck';
-                var eid = btn.dataset.editid;
-                if (eid) { _updateMaintenance(eid, data); } else { _addMaintenance(data); }
-                _closeModal('ivan-maint-modal');
-                _renderEquipmentTab();
+                // Map form priority 'medium' → API 'med'
+                var apiPriority = data.priority === 'medium' ? 'med' : (data.priority || 'med');
+                var taskPayload = {
+                    id:       'mt-' + _genId(),
+                    equipId:  data.equipmentId,
+                    title:    data.title,
+                    dueDate:  data.dueDate,
+                    priority: apiPriority,
+                    status:   data.status || 'upcoming',
+                    notes:    data.description || '',
+                    autoDot:  false
+                };
+                _api('POST', '/api/ivan/tasks', taskPayload).then(function() {
+                    _closeModal('ivan-maint-modal');
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
                 return;
             }
 
             // ── Mark complete
             if (a === 'mark-complete') {
-                _updateMaintenance(btn.dataset.mtid, { status: 'completed', completedAt: _today() });
-                _renderEquipmentTab();
+                _api('PUT', '/api/ivan/tasks/' + btn.dataset.mtid, { status: 'complete' }).then(function() {
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
                 return;
             }
 
-            // ── Delete equipment (cascades tasks + invoices)
+            // ── Delete equipment (cascades tasks + invoices via DB)
             if (a === 'delete-equip') {
                 var eq = _findEquip(btn.dataset.equipid);
                 if (!eq) return;
                 if (!confirm('Delete ' + eq.unitNumber + (eq.nickname ? ' (' + eq.nickname + ')' : '') + '?\n\nThis will also delete all maintenance tasks and invoices linked to this equipment.')) return;
-                _deleteEquipment(btn.dataset.equipid);
                 if (_es.selectedId === btn.dataset.equipid) _es.selectedId = null;
-                _renderEquipmentTab();
+                _api('DELETE', '/api/ivan/equipment/' + btn.dataset.equipid).then(function() {
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
                 return;
             }
 
             // ── Delete maintenance task
             if (a === 'delete-maint') {
                 if (!confirm('Delete this maintenance task?')) return;
-                _deleteMaintenance(btn.dataset.mtid);
-                _renderEquipmentTab();
+                _api('DELETE', '/api/ivan/tasks/' + btn.dataset.mtid).then(function() {
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
                 return;
             }
 
             // ── Delete invoice
             if (a === 'delete-inv') {
                 if (!confirm('Delete this invoice record?')) return;
-                _deleteInvoice(btn.dataset.invid);
-                _renderEquipmentTab();
+                _api('DELETE', '/api/ivan/invoices/' + btn.dataset.invid).then(function() {
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
                 return;
             }
 
@@ -1185,14 +1150,16 @@ var IvanOpsApp = (function () {
                 if (!payMethod) { alert('Please select a payment method.'); return; }
                 var ptype = btn.dataset.paytype, pid = btn.dataset.payid;
                 if (ptype === 'invoice') {
-                    var inv = _invoices.find(function (i) { return i.invoiceId === pid; });
-                    if (inv) { inv.paymentMethod = payMethod; inv.paymentDate = payDate; _save(LS_INVOICES, _invoices); }
+                    _api('PUT', '/api/ivan/invoices/' + pid, { paymentMethod: payMethod, paymentDate: payDate }).then(function() {
+                        _closeModal('ivan-payment-modal');
+                        _loadAll(function() { _renderEquipmentTab(); });
+                    });
                 } else {
-                    var mt = _maintenance.find(function (m) { return m.maintenanceTaskId === pid; });
-                    if (mt) { mt.paymentMethod = payMethod; mt.paymentDate = payDate; _save(LS_MAINTENANCE, _maintenance); }
+                    _api('PUT', '/api/ivan/tasks/' + pid, { paymentMethod: payMethod, paymentDate: payDate }).then(function() {
+                        _closeModal('ivan-payment-modal');
+                        _loadAll(function() { _renderEquipmentTab(); });
+                    });
                 }
-                _closeModal('ivan-payment-modal');
-                _renderEquipmentTab();
                 return;
             }
             if (a === 'close-hist-modal') { _closeModal('ivan-hist-modal'); return; }
@@ -1212,27 +1179,29 @@ var IvanOpsApp = (function () {
                 return;
             }
             if (a === 'save-hist-edit') {
-                var inv = _invoices.find(function (i) { return i.invoiceId === btn.dataset.payid; });
-                if (inv) {
-                    inv.invoiceDate   = document.querySelector('#ivan-hist-modal [name="hist_invoiceDate"]').value;
-                    inv.invoiceNumber = document.querySelector('#ivan-hist-modal [name="hist_invoiceNumber"]').value;
-                    inv.vendor        = document.querySelector('#ivan-hist-modal [name="hist_vendor"]').value;
-                    inv.totalAmount   = parseFloat(document.querySelector('#ivan-hist-modal [name="hist_totalAmount"]').value) || 0;
-                    inv.description   = document.querySelector('#ivan-hist-modal [name="hist_description"]').value;
-                    inv.paymentMethod = document.querySelector('#ivan-hist-modal [name="hist_paymentMethod"]').value || null;
-                    inv.paymentDate   = document.querySelector('#ivan-hist-modal [name="hist_paymentDate"]').value   || null;
-                    _save(LS_INVOICES, _invoices);
-                }
-                _closeModal('ivan-hist-modal');
-                _renderEquipmentTab();
+                var pid = btn.dataset.payid;
+                var payload = {
+                    date:          document.querySelector('#ivan-hist-modal [name="hist_invoiceDate"]').value,
+                    invoiceNumber: document.querySelector('#ivan-hist-modal [name="hist_invoiceNumber"]').value,
+                    vendor:        document.querySelector('#ivan-hist-modal [name="hist_vendor"]').value,
+                    amount:        parseFloat(document.querySelector('#ivan-hist-modal [name="hist_totalAmount"]').value) || 0,
+                    description:   document.querySelector('#ivan-hist-modal [name="hist_description"]').value,
+                    paymentMethod: document.querySelector('#ivan-hist-modal [name="hist_paymentMethod"]').value || '',
+                    paymentDate:   document.querySelector('#ivan-hist-modal [name="hist_paymentDate"]').value   || ''
+                };
+                _api('PUT', '/api/ivan/invoices/' + pid, payload).then(function() {
+                    _closeModal('ivan-hist-modal');
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
                 return;
             }
             if (a === 'delete-hist-record') {
                 var pid = document.getElementById('ivan-hist-save-btn').dataset.payid;
                 if (!confirm('Delete this invoice? This cannot be undone.')) return;
-                _deleteInvoice(pid);
-                _closeModal('ivan-hist-modal');
-                _renderEquipmentTab();
+                _api('DELETE', '/api/ivan/invoices/' + pid).then(function() {
+                    _closeModal('ivan-hist-modal');
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
                 return;
             }
             if (a === 'close-inv-modal') { _closeModal('ivan-inv-modal'); return; }
@@ -1241,15 +1210,23 @@ var IvanOpsApp = (function () {
                 if (!data.equipmentId || !data.invoiceDate || !data.vendor || !data.totalAmount) {
                     alert('Equipment, Date, Vendor, and Amount are required.'); return;
                 }
-                data.totalAmount   = parseFloat(data.totalAmount) || 0;
-                data.paymentMethod = data.paymentMethod || null;
-                data.paymentDate   = data.paymentDate   || null;
                 var fi = document.querySelector('#ivan-inv-modal [name="invoiceFile"]');
-                data.fileRef = fi && fi.files[0] ? fi.files[0].name : null;
-                _addInvoice(data);
-                _es.histPage = 0;
-                _closeModal('ivan-inv-modal');
-                _renderEquipmentTab();
+                var invPayload = {
+                    id:            'inv-' + _genId(),
+                    equipId:       data.equipmentId,
+                    date:          data.invoiceDate,
+                    vendor:        data.vendor,
+                    invoiceNumber: data.invoiceNumber || '',
+                    amount:        parseFloat(data.totalAmount) || 0,
+                    description:   data.description || '',
+                    paymentMethod: data.paymentMethod || '',
+                    paymentDate:   data.paymentDate   || ''
+                };
+                _api('POST', '/api/ivan/invoices', invPayload).then(function() {
+                    _es.histPage = 0;
+                    _closeModal('ivan-inv-modal');
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
                 return;
             }
         });
@@ -1312,12 +1289,16 @@ var IvanOpsApp = (function () {
         container.addEventListener('change', function (e) {
             if (e.target.dataset.action === 'toggle-ins') {
                 e.stopPropagation();
-                toggleInsuranceStatus(e.target.dataset.equipid);
-                _renderEquipmentTab();
+                var equipId = e.target.dataset.equipid;
+                var eq = _findEquip(equipId);
+                if (!eq) return;
+                _api('PUT', '/api/ivan/equipment/' + equipId, { insured: !eq.insured }).then(function() {
+                    _loadAll(function() { _renderEquipmentTab(); });
+                });
             }
             if (e.target.dataset.action === 'set-ownership') {
                 e.stopPropagation();
-                _updateEquipment(e.target.dataset.equipid, { ownership: e.target.value });
+                _api('PUT', '/api/ivan/equipment/' + e.target.dataset.equipid, { ownership: e.target.value });
             }
         });
 
@@ -1454,7 +1435,13 @@ var IvanOpsApp = (function () {
                 var data = _readForm('ivan-driver-modal');
                 if (!data.name) { alert('Name is required.'); return; }
                 var eid = btn.dataset.editid;
-                if (eid) { _updateDriver(eid, data); } else { _addDriver(data); }
+                if (eid) {
+                    var i = _drivers.findIndex(function (d) { return d.id === eid; });
+                    if (i >= 0) { _drivers[i] = Object.assign({}, _drivers[i], data); _saveLS(LS_DRIVERS, _drivers); }
+                } else {
+                    data.id = 'drv-' + _genId(); data.createdAt = _nowIso();
+                    _drivers.push(data); _saveLS(LS_DRIVERS, _drivers);
+                }
                 _closeModal('ivan-driver-modal');
                 _renderDriversTab();
                 return;
@@ -1464,7 +1451,8 @@ var IvanOpsApp = (function () {
                 var d = _findDriver(btn.dataset.driverid);
                 if (!d) return;
                 var next = d.driverType === 'owner_operator' ? 'company_driver' : 'owner_operator';
-                _updateDriver(d.id, { driverType: next });
+                var i = _drivers.findIndex(function (x) { return x.id === d.id; });
+                if (i >= 0) { _drivers[i] = Object.assign({}, _drivers[i], { driverType: next }); _saveLS(LS_DRIVERS, _drivers); }
                 _renderDriversTab();
                 return;
             }
@@ -1474,7 +1462,7 @@ var IvanOpsApp = (function () {
                 if (!d) return;
                 if (!confirm('Delete driver ' + d.name + '?')) return;
                 _drivers = _drivers.filter(function (x) { return x.id !== d.id; });
-                _save(LS_DRIVERS, _drivers);
+                _saveLS(LS_DRIVERS, _drivers);
                 _renderDriversTab();
                 return;
             }
@@ -1500,17 +1488,24 @@ var IvanOpsApp = (function () {
         _equipCid = containerId;
         var container = document.getElementById(containerId);
         if (!container) return;
-        _renderEquipmentTab();
-        if (!container._ivanEquipBound) {
-            _bindEquipEvents(container);
-            container._ivanEquipBound = true;
-        }
+        _loadAll(function() {
+            _syncDotInspectionTasks(function() {
+                _loadAll(function() {
+                    _renderEquipmentTab();
+                    if (!container._ivanEquipBound) {
+                        _attachEquipmentListeners(container);
+                        container._ivanEquipBound = true;
+                    }
+                });
+            });
+        });
     }
 
     function mountDrivers(containerId) {
         _driverCid = containerId;
         var container = document.getElementById(containerId);
         if (!container) return;
+        _drivers = _loadLS(LS_DRIVERS);
         _renderDriversTab();
         if (!container._ivanDriverBound) {
             _bindDriverEvents(container);

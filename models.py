@@ -133,3 +133,85 @@ class User(UserMixin, db.Model):
 
     def __repr__(self):
         return f'<User {self.email}>'
+
+
+# ── Ivan Cartage Equipment Models ─────────────────────────────────────────────
+
+class IvanEquipment(db.Model):
+    __tablename__ = 'ivan_equipment'
+    id            = db.Column(db.String(50),  primary_key=True)
+    type          = db.Column(db.String(20),  nullable=False)  # 'truck' | 'trailer'
+    unit_number   = db.Column(db.String(50),  nullable=False)
+    nickname      = db.Column(db.String(100), default='')
+    vin           = db.Column(db.String(100), default='')
+    plate         = db.Column(db.String(50),  default='')
+    make          = db.Column(db.String(100), default='')
+    model         = db.Column(db.String(100), default='')
+    year          = db.Column(db.Integer,     nullable=True)
+    mileage       = db.Column(db.Integer,     nullable=True)
+    ownership     = db.Column(db.String(50),  default='owned')
+    insured       = db.Column(db.Boolean,     default=True)
+    dot_inspection_date = db.Column(db.String(20), default='')
+    active        = db.Column(db.Boolean,     default=True)
+    notes         = db.Column(db.Text,        default='')
+    created_at    = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    tasks    = db.relationship('IvanTask',    backref='equipment', lazy='dynamic', cascade='all, delete-orphan')
+    invoices = db.relationship('IvanInvoice', backref='equipment', lazy='dynamic', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'type': self.type, 'unitNumber': self.unit_number,
+            'nickname': self.nickname or '', 'vin': self.vin or '',
+            'plate': self.plate or '', 'make': self.make or '',
+            'model': self.model or '', 'year': self.year, 'mileage': self.mileage,
+            'ownership': self.ownership or 'owned', 'insured': self.insured,
+            'dotInspectionDate': self.dot_inspection_date or '',
+            'active': self.active, 'notes': self.notes or '',
+            'createdAt': self.created_at.isoformat() if self.created_at else ''
+        }
+
+class IvanTask(db.Model):
+    __tablename__ = 'ivan_tasks'
+    id         = db.Column(db.String(50),  primary_key=True)
+    equip_id   = db.Column(db.String(50),  db.ForeignKey('ivan_equipment.id'), nullable=False)
+    title      = db.Column(db.String(200), nullable=False)
+    due_date   = db.Column(db.String(20),  default='')
+    priority   = db.Column(db.String(20),  default='med')   # 'high' | 'med' | 'low'
+    status     = db.Column(db.String(20),  default='upcoming')  # 'upcoming' | 'complete'
+    notes      = db.Column(db.Text,        default='')
+    auto_dot   = db.Column(db.Boolean,     default=False)
+    created_at = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'equipId': self.equip_id, 'title': self.title,
+            'dueDate': self.due_date or '', 'priority': self.priority or 'med',
+            'status': self.status or 'upcoming', 'notes': self.notes or '',
+            'autoDot': self.auto_dot,
+            'createdAt': self.created_at.isoformat() if self.created_at else ''
+        }
+
+class IvanInvoice(db.Model):
+    __tablename__ = 'ivan_invoices'
+    id             = db.Column(db.String(50),  primary_key=True)
+    equip_id       = db.Column(db.String(50),  db.ForeignKey('ivan_equipment.id'), nullable=False)
+    date           = db.Column(db.String(20),  default='')
+    vendor         = db.Column(db.String(200), default='')
+    description    = db.Column(db.Text,        default='')
+    amount         = db.Column(db.Float,       default=0.0)
+    invoice_number = db.Column(db.String(100), default='')
+    payment_method = db.Column(db.String(100), default='')
+    payment_date   = db.Column(db.String(20),  default='')
+    created_at     = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'equipId': self.equip_id,
+            'date': self.date or '', 'vendor': self.vendor or '',
+            'description': self.description or '', 'amount': self.amount or 0,
+            'invoiceNumber': self.invoice_number or '',
+            'paymentMethod': self.payment_method or '',
+            'paymentDate': self.payment_date or '',
+            'createdAt': self.created_at.isoformat() if self.created_at else ''
+        }

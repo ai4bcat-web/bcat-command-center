@@ -1151,6 +1151,51 @@ def ivan_invoice_delete(iid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/ivan/import', methods=['POST'])
+@login_required
+def ivan_import():
+    """One-time bulk import endpoint. Skips records that already exist."""
+    from models import IvanEquipment, IvanTask, IvanInvoice
+    from extensions import db as _db
+    d = request.get_json()
+    imported = {'equipment': 0, 'tasks': 0, 'invoices': 0}
+    for e in d.get('equipment', []):
+        if not IvanEquipment.query.get(e['id']):
+            _db.session.add(IvanEquipment(
+                id=e['id'], type=e.get('type','truck'), unit_number=e.get('unitNumber',''),
+                nickname=e.get('nickname',''), vin=e.get('vin',''), plate=e.get('plate',''),
+                make=e.get('make',''), model=e.get('model',''), year=e.get('year'),
+                mileage=e.get('mileage'), ownership=e.get('ownership','owned'),
+                insured=e.get('insured', True), dot_inspection_date=e.get('dotInspectionDate',''),
+                active=e.get('active', True), notes=e.get('notes','')
+            ))
+            imported['equipment'] += 1
+    for t in d.get('tasks', []):
+        tid = t.get('id') or t.get('maintenanceTaskId')
+        eid = t.get('equipId') or t.get('equipmentId')
+        if tid and eid and IvanEquipment.query.get(eid) and not IvanTask.query.get(tid):
+            _db.session.add(IvanTask(
+                id=tid, equip_id=eid, title=t.get('title',''),
+                due_date=t.get('dueDate',''), priority=t.get('priority','med'),
+                status=t.get('status','upcoming'), notes=t.get('notes',''),
+                auto_dot=t.get('autoDot', False)
+            ))
+            imported['tasks'] += 1
+    for inv in d.get('invoices', []):
+        iid = inv.get('id')
+        eid = inv.get('equipId') or inv.get('equipmentId')
+        if iid and eid and IvanEquipment.query.get(eid) and not IvanInvoice.query.get(iid):
+            _db.session.add(IvanInvoice(
+                id=iid, equip_id=eid, date=inv.get('date',''),
+                vendor=inv.get('vendor',''), description=inv.get('description',''),
+                amount=inv.get('amount', 0), invoice_number=inv.get('invoiceNumber',''),
+                payment_method=inv.get('paymentMethod',''), payment_date=inv.get('paymentDate','')
+            ))
+            imported['invoices'] += 1
+    _db.session.commit()
+    return jsonify({'ok': True, 'imported': imported})
+
+
 # ── Dev server entry point ────────────────────────────────────────────────────
 # Production: use gunicorn (see Procfile / .replit).
 if __name__ == '__main__':

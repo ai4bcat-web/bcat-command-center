@@ -1151,6 +1151,57 @@ def ivan_invoice_delete(iid):
     return jsonify({'ok': True})
 
 
+@app.route('/ivan/export')
+@login_required
+def ivan_export_page():
+    return '''<!DOCTYPE html><html><head><title>Ivan Export</title></head><body>
+<h2>Exporting Ivan data from localStorage...</h2>
+<script>
+var data = {
+  equipment: JSON.parse(localStorage.getItem("ivan_equipment") || "[]"),
+  tasks: JSON.parse(localStorage.getItem("ivan_tasks") || "[]"),
+  invoices: JSON.parse(localStorage.getItem("ivan_invoices") || "[]")
+};
+var blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+var a = document.createElement("a");
+a.href = URL.createObjectURL(blob);
+a.download = "ivan_export.json";
+document.body.appendChild(a);
+a.click();
+document.body.innerHTML += "<p>Done! File downloaded. Now upload it on Railway at <b>/ivan/import-page</b></p>";
+</script>
+</body></html>'''
+
+
+@app.route('/ivan/import-page')
+@login_required
+def ivan_import_page():
+    return '''<!DOCTYPE html><html><head><title>Ivan Import</title></head><body>
+<h2>Import Ivan Data</h2>
+<form id="f">
+  <input type="file" id="file" accept=".json"><br><br>
+  <button type="submit">Import</button>
+</form>
+<pre id="result"></pre>
+<script>
+document.getElementById("f").onsubmit = function(e) {
+  e.preventDefault();
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    fetch("/api/ivan/import", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: ev.target.result
+    }).then(function(r){ return r.json(); }).then(function(d){
+      document.getElementById("result").textContent = JSON.stringify(d, null, 2);
+    });
+  };
+  reader.readAsText(document.getElementById("file").files[0]);
+};
+</script>
+</body></html>'''
+
+
 @app.route('/api/ivan/import', methods=['POST'])
 @csrf.exempt
 @login_required

@@ -33,6 +33,9 @@ google-auth-httplib2==0.3.0
 # Task scheduling
 schedule==1.2.2
 
+# Redis (required by Flask-Limiter even when using memory:// fallback)
+redis>=4.0.0
+
 # Google Ads API (Best Care integration)
 google-ads>=28.0.0
 

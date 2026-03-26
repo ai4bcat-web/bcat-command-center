@@ -286,3 +286,14 @@ def upsert_amazon_trips(trips: list) -> int:
 
     db.session.commit()
     return count
+
+
+class RelaySession(db.Model):
+    """Stores Amazon Relay browser cookies for headless session reuse on Railway."""
+    __tablename__ = 'relay_sessions'
+
+    id           = db.Column(db.Integer,  primary_key=True)
+    cookies_json = db.Column(db.Text,     default='[]')
+    saved_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    last_status  = db.Column(db.String(50), default='')   # 'ok', 'captcha', 'login_failed'
+    last_error   = db.Column(db.Text,     default='')

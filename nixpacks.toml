@@ -1,0 +1,14 @@
+# nixpacks.toml — Railway build configuration
+#
+# Installs Playwright + Chromium for the Amazon Relay automation cron job.
+# The --with-deps flag installs all required system libraries (libatk, libnss3, etc.).
+#
+# Both the web dashboard service and the relay_cron service use this same
+# image, so Playwright is available to both. The web service does not call
+# Playwright directly but having it present causes no issues.
+
+[phases.install]
+cmds = [
+    "pip install -r requirements.txt",
+    "playwright install chromium --with-deps",
+]

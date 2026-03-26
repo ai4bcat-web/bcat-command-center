@@ -2,8 +2,13 @@
 wsgi.py — WSGI entry point for Gunicorn.
 Usage: gunicorn wsgi:app -c gunicorn.conf.py
 """
-from dashboard import app  # noqa: F401
+import threading
+from dashboard import app, _start_discord_bot, _start_telegram_bot  # noqa: F401
 import config
+
+# Start bots once when gunicorn loads this module (production only)
+threading.Thread(target=_start_discord_bot, daemon=True, name='discord-bot').start()
+threading.Thread(target=_start_telegram_bot, daemon=True, name='telegram-bot').start()
 
 # Create DB tables and seed admin on startup (production only)
 if config.DATABASE_URL:

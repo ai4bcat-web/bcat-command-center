@@ -1,1 +1,2 @@
-web: bash scripts/start.sh
+web: gunicorn wsgi:app -c gunicorn.conf.py
+release: flask db upgrade

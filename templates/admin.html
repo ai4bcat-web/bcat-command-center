@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>User Management — BCAT Admin</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #05070d; color: #f3f4f6; font-family: Arial, sans-serif; padding: 2rem; }
+        h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: .25rem; }
+        .sub { color: #64748b; font-size: .875rem; margin-bottom: 2rem; }
+        .sub a { color: #0ea5e9; text-decoration: none; }
+
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: .75rem; }
+        .btn { background: #0ea5e9; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 600; }
+        .btn:hover { background: #0284c7; }
+        .btn-ghost { background: transparent; border: 1px solid #243047; color: #94a3b8; }
+        .btn-ghost:hover { border-color: #0ea5e9; color: #f3f4f6; }
+        .btn-danger { background: transparent; border: 1px solid #7f1d1d; color: #fca5a5; }
+        .btn-danger:hover { background: #7f1d1d; color: #fff; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
+
+        .card { background: #0d1219; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 14px; text-align: left; font-size: 13px; border-bottom: 1px solid #1e293b; }
+        th { color: #64748b; font-weight: 600; }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover { background: rgba(14,165,233,.05); }
+
+        .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+        .badge-admin   { background: #1e3a5f; color: #93c5fd; }
+        .badge-analyst { background: #3b1f5e; color: #d8b4fe; }
+        .badge-viewer  { background: #374151; color: #9ca3af; }
+        .badge-other   { background: #1b2235; color: #94a3b8; border: 1px solid #243047; }
+        .badge-active   { background: #14532d; color: #86efac; }
+        .badge-inactive { background: #7f1d1d; color: #fca5a5; }
+
+        /* Modal */
+        .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 100; align-items: center; justify-content: center; padding: 1rem; }
+        .overlay.open { display: flex; }
+        .modal { background: #111827; border: 1px solid #243047; border-radius: 14px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+        .modal-hdr { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem .75rem; border-bottom: 1px solid #1e293b; font-size: 1rem; font-weight: 700; }
+        .modal-body { padding: 1rem 1.25rem; }
+        .modal-ftr { display: flex; justify-content: flex-end; gap: .6rem; padding: .75rem 1.25rem 1rem; border-top: 1px solid #1e293b; }
+        .mclose { background: none; border: none; color: #94a3b8; font-size: 1rem; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+        .mclose:hover { color: #f3f4f6; background: #1f2937; }
+
+        .fg { display: flex; flex-direction: column; margin-bottom: .75rem; }
+        .flbl { font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .4px; }
+        .finput { background: #0f172a; border: 1px solid #243047; border-radius: 8px; color: #f3f4f6; font-size: 13px; padding: 7px 10px; outline: none; width: 100%; font-family: inherit; }
+        .finput:focus { border-color: #0ea5e9; }
+        .frow { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: .75rem; }
+        .role-checkboxes { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+        .role-chip { display: flex; align-items: center; gap: .35rem; background: #1b2235; border: 1px solid #243047; border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 12px; color: #94a3b8; transition: all .15s; }
+        .role-chip:has(input:checked) { background: #1e3a5f; border-color: #0ea5e9; color: #f3f4f6; }
+        .role-chip input { display: none; }
+
+        .alert { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 1rem; }
+        .alert-success { background: #14532d; color: #86efac; border: 1px solid #166534; }
+        .alert-error   { background: #1a0c0c; color: #fca5a5; border: 1px solid #7f1d1d; }
+    </style>
+</head>
+<body>
+
+<h1>User Management</h1>
+<p class="sub"><a href="/">← Back to Dashboard</a> &nbsp;·&nbsp; BCAT Admin Panel</p>
+
+<div id="alert-area"></div>
+
+<div class="toolbar">
+    <span style="color:#64748b;font-size:13px">{{ users|length }} user{{ 's' if users|length != 1 else '' }}</span>
+    <button class="btn" onclick="openCreateModal()">+ Add User</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Roles</th>
+                <th>Status</th>
+                <th>Last Login</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for user in users %}
+        <tr>
+            <td>{{ user.email }}</td>
+            <td style="color:#94a3b8">{{ user.name or '—' }}</td>
+            <td>
+                {% for role in user.roles %}
+                <span class="badge badge-{{ role.name if role.name in ['admin','analyst','viewer'] else 'other' }}">{{ role.name }}</span>
+                {% endfor %}
+            </td>
+            <td>
+                <span class="badge {{ 'badge-active' if user.is_active else 'badge-inactive' }}">
+                    {{ 'Active' if user.is_active else 'Disabled' }}
+                </span>
+            </td>
+            <td style="color:#64748b;font-size:12px">
+                {{ user.last_login_at.strftime('%b %d, %Y %H:%M') if user.last_login_at else 'Never' }}
+            </td>
+            <td style="white-space:nowrap">
+                <button class="btn btn-sm btn-ghost" onclick="openEditModal({{ user.id }}, '{{ user.email }}', '{{ user.name or '' }}', {{ user.is_active|tojson }}, {{ user.role_names|tojson }})">Edit</button>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:#64748b;padding:2rem">No users yet. Create one above.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Create User Modal -->
+<div id="create-modal" class="overlay">
+    <div class="modal">
+        <div class="modal-hdr">
+            <span>Add User</span>
+            <button class="mclose" onclick="closeModal('create-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="frow">
+                <div class="fg"><label class="flbl">Email *</label><input id="c-email" type="email" class="finput" placeholder="user@example.com"></div>
+                <div class="fg"><label class="flbl">Name</label><input id="c-name" class="finput" placeholder="Full name"></div>
+            </div>
+            <div class="frow">
+                <div class="fg"><label class="flbl">Password *</label><input id="c-password" type="password" class="finput" placeholder="Temporary password"></div>
+                <div class="fg"></div>
+            </div>
+            <div class="fg">
+                <label class="flbl">Roles</label>
+                <div class="role-checkboxes" id="c-roles">
+                    {% for role in roles %}
+                    <label class="role-chip"><input type="checkbox" name="role" value="{{ role.name }}"> {{ role.name }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="modal-ftr">
+            <button class="btn btn-ghost" onclick="closeModal('create-modal')">Cancel</button>
+            <button class="btn" onclick="createUser()">Create User</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit User Modal -->
+<div id="edit-modal" class="overlay">
+    <div class="modal">
+        <div class="modal-hdr">
+            <span id="edit-modal-title">Edit User</span>
+            <button class="mclose" onclick="closeModal('edit-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="e-id">
+            <div class="frow">
+                <div class="fg"><label class="flbl">Email</label><input id="e-email" class="finput" disabled style="opacity:.5"></div>
+                <div class="fg"><label class="flbl">Name</label><input id="e-name" class="finput"></div>
+            </div>
+            <div class="fg"><label class="flbl">New Password <span style="color:#64748b;font-weight:400">(leave blank to keep current)</span></label>
+                <input id="e-password" type="password" class="finput" placeholder="Leave blank to keep unchanged"></div>
+            <div class="fg">
+                <label class="flbl">Roles</label>
+                <div class="role-checkboxes" id="e-roles">
+                    {% for role in roles %}
+                    <label class="role-chip"><input type="checkbox" name="erole" value="{{ role.name }}"> {{ role.name }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="fg" style="margin-top:.5rem">
+                <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-size:13px;color:#f3f4f6">
+                    <input type="checkbox" id="e-active"> Account active
+                </label>
+            </div>
+        </div>
+        <div class="modal-ftr" style="justify-content:space-between">
+            <button class="btn btn-sm btn-danger" onclick="deleteUser()">Delete User</button>
+            <div style="display:flex;gap:.6rem">
+                <button class="btn btn-ghost" onclick="closeModal('edit-modal')">Cancel</button>
+                <button class="btn" onclick="saveUser()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function showAlert(msg, type) {
+    var el = document.getElementById('alert-area');
+    el.innerHTML = '<div class="alert alert-' + type + '">' + msg + '</div>';
+    setTimeout(function() { el.innerHTML = ''; }, 4000);
+}
+
+function openCreateModal() {
+    document.getElementById('c-email').value = '';
+    document.getElementById('c-name').value  = '';
+    document.getElementById('c-password').value = '';
+    document.querySelectorAll('#c-roles input').forEach(function(cb) { cb.checked = false; });
+    openModal('create-modal');
+}
+
+function openEditModal(id, email, name, isActive, roleNames) {
+    document.getElementById('e-id').value      = id;
+    document.getElementById('e-email').value   = email;
+    document.getElementById('e-name').value    = name;
+    document.getElementById('e-password').value = '';
+    document.getElementById('e-active').checked = isActive;
+    document.getElementById('edit-modal-title').textContent = 'Edit — ' + email;
+    document.querySelectorAll('#e-roles input').forEach(function(cb) {
+        cb.checked = roleNames.indexOf(cb.value) >= 0;
+    });
+    openModal('edit-modal');
+}
+
+function getCheckedRoles(containerId) {
+    return Array.from(document.querySelectorAll('#' + containerId + ' input:checked')).map(function(cb){ return cb.value; });
+}
+
+function createUser() {
+    var payload = {
+        email:    document.getElementById('c-email').value.trim(),
+        password: document.getElementById('c-password').value.trim(),
+        name:     document.getElementById('c-name').value.trim(),
+        roles:    getCheckedRoles('c-roles')
+    };
+    if (!payload.email || !payload.password) { showAlert('Email and password are required.', 'error'); return; }
+    if (payload.roles.length === 0) payload.roles = ['viewer'];
+    fetch('/api/admin/users', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+    .then(function(res) {
+        if (res.ok) { closeModal('create-modal'); showAlert('User created: ' + res.d.email, 'success'); setTimeout(function(){ location.reload(); }, 1500); }
+        else showAlert(res.d.error || 'Error creating user.', 'error');
+    });
+}
+
+function saveUser() {
+    var id = document.getElementById('e-id').value;
+    var payload = {
+        name:      document.getElementById('e-name').value.trim(),
+        is_active: document.getElementById('e-active').checked,
+        roles:     getCheckedRoles('e-roles'),
+        password:  document.getElementById('e-password').value.trim() || undefined
+    };
+    fetch('/api/admin/users/' + id, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+    .then(function(res) {
+        if (res.ok) { closeModal('edit-modal'); showAlert('User updated.', 'success'); setTimeout(function(){ location.reload(); }, 1500); }
+        else showAlert(res.d.error || 'Error updating user.', 'error');
+    });
+}
+
+function deleteUser() {
+    var id = document.getElementById('e-id').value;
+    var email = document.getElementById('e-email').value;
+    if (!confirm('Delete user ' + email + '? This cannot be undone.')) return;
+    fetch('/api/admin/users/' + id, { method: 'DELETE' })
+    .then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+    .then(function(res) {
+        if (res.ok) { closeModal('edit-modal'); showAlert('User deleted.', 'success'); setTimeout(function(){ location.reload(); }, 1500); }
+        else showAlert(res.d.error || 'Error deleting user.', 'error');
+    });
+}
+</script>
+</body>
+</html>

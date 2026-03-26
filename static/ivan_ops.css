@@ -1,0 +1,329 @@
+/*
+ * static/ivan_ops.css
+ * Ivan Cartage — Equipment & Drivers tab styles
+ * Extends dashboard.css; uses same color palette.
+ */
+
+/* ── Section header (title + controls row) ──────────────────────────── */
+.ivan-section-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-bottom: 1rem;
+}
+
+/* ── Filter button group ─────────────────────────────────────────────── */
+.ivan-fgroup {
+    display: flex;
+    gap: .4rem;
+    flex-wrap: wrap;
+}
+
+.ivan-fbtn {
+    border: 1px solid #243047;
+    background: #1b2235;
+    color: #e5e7eb;
+    padding: 6px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: background .15s, color .15s, border-color .15s;
+    white-space: nowrap;
+}
+.ivan-fbtn:hover  { background: #25304a; border-color: #0ea5e9; }
+.ivan-fbtn.active { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
+
+/* ── Search input ────────────────────────────────────────────────────── */
+.ivan-search {
+    background: #111827;
+    border: 1px solid #243047;
+    border-radius: 8px;
+    color: #f3f4f6;
+    font-size: 13px;
+    padding: 6px 12px;
+    outline: none;
+    width: 220px;
+    transition: border-color .15s;
+}
+.ivan-search::placeholder { color: #4b5563; }
+.ivan-search:focus         { border-color: #0ea5e9; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────── */
+.ivan-btn {
+    border: none;
+    background: #0ea5e9;
+    color: #fff;
+    padding: 7px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background .15s;
+    white-space: nowrap;
+}
+.ivan-btn:hover        { background: #0284c7; }
+.ivan-btn.ivan-btn-sm  { padding: 4px 9px; font-size: 12px; border-radius: 6px; }
+.ivan-btn.ivan-btn-ghost {
+    background: transparent;
+    border: 1px solid #243047;
+    color: #94a3b8;
+}
+.ivan-btn.ivan-btn-ghost:hover { border-color: #0ea5e9; color: #f3f4f6; }
+.ivan-btn.ivan-btn-danger {
+    background: transparent;
+    border: 1px solid #7f1d1d;
+    color: #fca5a5;
+}
+.ivan-btn.ivan-btn-danger:hover { background: #7f1d1d; color: #fff; border-color: #ef4444; }
+
+/* ── Inline ownership select (in table cell) ─────────────────────────── */
+.ivan-ownership-select {
+    background: #0f172a;
+    border: 1px solid #243047;
+    border-radius: 6px;
+    color: #f3f4f6;
+    font-size: 12px;
+    padding: 4px 8px;
+    cursor: pointer;
+    outline: none;
+    transition: border-color .15s;
+}
+.ivan-ownership-select:focus { border-color: #0ea5e9; }
+.ivan-ownership-select option { background: #111827; }
+
+/* ── Table ───────────────────────────────────────────────────────────── */
+.ivan-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.ivan-table th,
+.ivan-table td {
+    text-align: left;
+    padding: 9px 10px;
+    border-bottom: 1px solid #20263a;
+    font-size: 13px;
+    vertical-align: middle;
+}
+.ivan-table th { color: #9ca3af; font-weight: 600; white-space: nowrap; }
+.ivan-table tbody tr:last-child td { border-bottom: none; }
+
+/* Equipment row: click to expand */
+.ivan-erow { cursor: pointer; transition: background .12s; }
+.ivan-erow:hover      { background: rgba(14, 165, 233, .07); }
+.ivan-erow-sel        { background: rgba(14, 165, 233, .12) !important; }
+.ivan-erow-sel:hover  { background: rgba(14, 165, 233, .16) !important; }
+
+/* ── Badges ──────────────────────────────────────────────────────────── */
+.ivan-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+/* Priority */
+.ivan-badge-high   { background: #7f1d1d; color: #fca5a5; }
+.ivan-badge-med    { background: #78350f; color: #fcd34d; }
+.ivan-badge-low    { background: #1e3a5f; color: #93c5fd; }
+
+/* Status */
+.ivan-badge-overdue  { background: #7f1d1d; color: #fca5a5; }
+.ivan-badge-done     { background: #14532d; color: #86efac; }
+.ivan-badge-inprog   { background: #1e3a5f; color: #93c5fd; }
+.ivan-badge-upcoming { background: #1b2235; color: #94a3b8; border: 1px solid #243047; }
+
+/* Insurance */
+.ivan-badge-insured     { background: #14532d; color: #86efac; }
+.ivan-badge-uninsured   { background: #7f1d1d; color: #fca5a5; }
+
+/* Type */
+.ivan-badge-truck   { background: #1e3a5f; color: #93c5fd; }
+.ivan-badge-trailer { background: #3b1f5e; color: #d8b4fe; }
+
+/* Active/Inactive */
+.ivan-badge-active   { background: #14532d; color: #86efac; }
+.ivan-badge-inactive { background: #374151; color: #9ca3af; }
+
+/* Driver type */
+.ivan-badge-oo      { background: #3b1f5e; color: #d8b4fe; }
+.ivan-badge-company { background: #1e3a5f; color: #93c5fd; }
+
+/* Warning (open tasks) */
+.ivan-badge-warn { background: #78350f; color: #fcd34d; }
+
+/* Invoice */
+.ivan-badge-invoice { background: #1c2d40; color: #7dd3fc; border: 1px solid #1e40af; }
+
+/* ── Value color helpers ─────────────────────────────────────────────── */
+.ivan-val-danger { color: #f87171; font-weight: 700; }
+.ivan-val-warn   { color: #fbbf24; font-weight: 700; }
+
+/* ── Insurance toggle ────────────────────────────────────────────────── */
+.ivan-toggle {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    vertical-align: middle;
+}
+.ivan-toggle input { display: none; }
+
+.ivan-toggle-track {
+    width: 36px;
+    height: 20px;
+    background: #374151;
+    border-radius: 999px;
+    position: relative;
+    transition: background .2s;
+    border: 1px solid #4b5563;
+    display: inline-block;
+}
+.ivan-toggle input:checked + .ivan-toggle-track { background: #16a34a; border-color: #16a34a; }
+
+.ivan-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform .2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.ivan-toggle input:checked + .ivan-toggle-track .ivan-toggle-thumb { transform: translateX(16px); }
+
+/* ── Equipment detail panel ──────────────────────────────────────────── */
+.ivan-detail {
+    margin-bottom: 1.5rem;
+    border: 1px solid #0ea5e9;
+}
+
+.ivan-dgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: .75rem 1.5rem;
+    margin-bottom: 1rem;
+}
+.ivan-dfield  { }
+.ivan-dlbl    { font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .4px; }
+.ivan-dval    { font-size: 13px; color: #f3f4f6; }
+
+.ivan-detail-sub-hdr {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin: 1.25rem 0 .6rem;
+    flex-wrap: wrap;
+}
+
+/* ── Modal overlay + dialog ──────────────────────────────────────────── */
+.ivan-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .65);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+.ivan-overlay.open { display: flex; }
+
+.ivan-modal {
+    background: #111827;
+    border: 1px solid #243047;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 640px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,.6);
+}
+
+.ivan-modal-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem .75rem;
+    border-bottom: 1px solid #20263a;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #f8fafc;
+}
+
+.ivan-mclose {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: color .15s, background .15s;
+}
+.ivan-mclose:hover { color: #f3f4f6; background: #1f2937; }
+
+.ivan-modal-body  { padding: 1rem 1.25rem; }
+.ivan-modal-ftr   { display: flex; justify-content: flex-end; gap: .6rem; padding: .75rem 1.25rem 1rem; border-top: 1px solid #20263a; }
+
+/* ── Form elements ───────────────────────────────────────────────────── */
+.ivan-frow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .75rem;
+    margin-bottom: .75rem;
+}
+@media (max-width: 520px) {
+    .ivan-frow { grid-template-columns: 1fr; }
+}
+
+.ivan-fg    { display: flex; flex-direction: column; margin-bottom: .75rem; }
+.ivan-flbl  { font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .4px; }
+
+.ivan-input {
+    background: #0f172a;
+    border: 1px solid #243047;
+    border-radius: 8px;
+    color: #f3f4f6;
+    font-size: 13px;
+    padding: 7px 10px;
+    outline: none;
+    width: 100%;
+    transition: border-color .15s;
+    font-family: inherit;
+}
+.ivan-input::placeholder { color: #4b5563; }
+.ivan-input:focus         { border-color: #0ea5e9; }
+.ivan-input option        { background: #111827; }
+
+.ivan-ta {
+    resize: vertical;
+    min-height: 60px;
+}
+
+/* ── Phase note ──────────────────────────────────────────────────────── */
+.ivan-phase-note {
+    background: #1e3a5f;
+    border: 1px solid #1e40af;
+    border-radius: 8px;
+    color: #93c5fd;
+    font-size: 12px;
+    padding: 8px 12px;
+    margin-bottom: .75rem;
+    line-height: 1.5;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+    .ivan-section-hdr { flex-direction: column; align-items: flex-start; }
+    .ivan-search       { width: 100%; }
+    .ivan-modal        { max-width: 100%; border-radius: 10px; }
+    .ivan-dgrid        { grid-template-columns: 1fr; }
+}

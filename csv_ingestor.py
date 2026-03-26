@@ -8,6 +8,75 @@ logger = logging.getLogger(__name__)
 # Resolve project root relative to this file so outputs always land correctly
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+# ---------------------------------------------------------------------------
+# B/I marker column detection
+#
+# These are the column names (after header normalization) that carry the
+# row-level routing markers: 'B' = brokerage, 'I' = Ivan Cartage.
+# Ordered from most specific (standard TMS names) to most generic.
+# ---------------------------------------------------------------------------
+MARKER_COLUMN_VARIANTS: list[str] = [
+    "revenue_type_rev_type",   # standard TMS export column
+    "revenue_type",
+    "rev_type",
+    "division",                # common in freight/TMS systems
+    "div",
+    "business_unit",
+    "biz_unit",
+    "bu",
+    "load_type",
+    "record_type",
+    "shipment_type",
+    "service_type",
+    "dept",
+    "department",
+    "segment",
+    "line_type",
+    "category_type",
+    # "type" intentionally excluded — too generic, collides with expense files
+]
+
+
+def _detect_marker_column(df: pd.DataFrame) -> str | None:
+    """
+    Find the column in df that carries B/I row-level routing markers.
+
+    Strategy:
+      1. Try each name in MARKER_COLUMN_VARIANTS (first match wins).
+         Verify the column actually contains at least one 'B' or 'I' value.
+      2. If no named match, scan every column for one where ≥ 50% of values
+         are 'B' or 'I' (handles completely non-standard column names).
+
+    Returns the df column name (already normalized) or None.
+    """
+    total = len(df)
+    if total == 0:
+        return None
+
+    # Pass 1 — known name variants
+    for variant in MARKER_COLUMN_VARIANTS:
+        if variant in df.columns:
+            vals = df[variant].astype(str).str.strip().str.upper().unique()
+            if set(vals) & {"B", "I"}:
+                logger.info(f"  [marker] Detected by name: '{variant}'")
+                return variant
+
+    # Pass 2 — content scan (fallback for non-standard names)
+    for col in df.columns:
+        try:
+            vals = df[col].astype(str).str.strip().str.upper()
+            bi_count = int(vals.isin({"B", "I"}).sum())
+            if bi_count / total >= 0.5:
+                logger.info(
+                    f"  [marker] Detected by content scan: '{col}' "
+                    f"({bi_count}/{total} B/I values)"
+                )
+                return col
+        except Exception:
+            continue
+
+    return None
+
 
 def process_uploaded_csv(filepath, output_dir=None):
     """
@@ -52,10 +121,24 @@ def process_uploaded_csv(filepath, output_dir=None):
         "delivery_date": "raw_date",
         "ship_date": "raw_date",
         "date": "raw_date",
-        # Revenue type
+        # Revenue type / B-I marker (standard TMS names only here —
+        # non-standard names are handled by _detect_marker_column below)
         "revenue_type_rev_type": "rev_type",
         "revenue_type": "rev_type",
-        "type": "rev_type",
+        "rev_type": "rev_type",
+        "division": "rev_type",
+        "div": "rev_type",
+        "business_unit": "rev_type",
+        "biz_unit": "rev_type",
+        "bu": "rev_type",
+        "load_type": "rev_type",
+        "record_type": "rev_type",
+        "shipment_type": "rev_type",
+        "service_type": "rev_type",
+        "dept": "rev_type",
+        "department": "rev_type",
+        "segment": "rev_type",
+        "line_type": "rev_type",
         # Load ID
         "shipment_pro": "load_id",
         "pro": "load_id",
@@ -89,6 +172,26 @@ def process_uploaded_csv(filepath, output_dir=None):
         if src in df.columns and dst not in df.columns:
             df = df.rename(columns={src: dst})
             logger.info(f"  Column mapped: {src} → {dst}")
+
+    # -----------------------------------------------------------------------
+    # Marker column fallback: if rev_type still not present after the
+    # COLUMN_MAP pass, scan columns for any that carry B/I values
+    # -----------------------------------------------------------------------
+    if "rev_type" not in df.columns:
+        marker_col = _detect_marker_column(df)
+        if marker_col:
+            df = df.rename(columns={marker_col: "rev_type"})
+            logger.info(f"  Marker column auto-detected and mapped: '{marker_col}' → 'rev_type'")
+        else:
+            raise ValueError(
+                "Could not find a row-level B/I marker column.\n"
+                f"Tried known variants: {MARKER_COLUMN_VARIANTS}\n"
+                f"Also scanned all {len(df.columns)} columns for ≥50% B/I values — none found.\n"
+                f"Available columns: {list(df.columns)}"
+            )
+
+    detected_marker_col = "rev_type"  # normalized name after mapping
+    logger.info(f"  Marker column resolved to: 'rev_type' (B=brokerage, I=Ivan)")
 
     # -----------------------------------------------------------------------
     # Validate required fields
@@ -131,7 +234,7 @@ def process_uploaded_csv(filepath, output_dir=None):
         df["miles"] = clean_numeric(df["miles"])
 
     # -----------------------------------------------------------------------
-    # Split by revenue type
+    # Split by B/I marker
     # -----------------------------------------------------------------------
     total_rows = len(df)
     rev_type_norm = df["rev_type"].astype(str).str.strip().str.upper()
@@ -140,10 +243,18 @@ def process_uploaded_csv(filepath, output_dir=None):
     ivan_mask = rev_type_norm == "I"
     other_mask = ~(brokerage_mask | ivan_mask)
 
+    b_count = int(brokerage_mask.sum())
+    i_count = int(ivan_mask.sum())
+    logger.info(
+        f"  B/I split: {b_count} brokerage rows (B), "
+        f"{i_count} Ivan rows (I), "
+        f"{int(other_mask.sum())} other/skipped"
+    )
+
     skipped = int(other_mask.sum())
     if skipped:
         other_types = df.loc[other_mask, "rev_type"].unique().tolist()
-        msg = f"{skipped} rows had unrecognized revenue_type values: {other_types} — skipped"
+        msg = f"{skipped} rows had unrecognized marker values: {other_types} — skipped (expected 'B' or 'I')"
         warnings.append(msg)
         logger.warning(msg)
 
@@ -187,5 +298,6 @@ def process_uploaded_csv(filepath, output_dir=None):
         "ivan_rows": len(ivan_out),
         "skipped_rows": skipped,
         "total_input_rows": total_rows,
+        "marker_column": detected_marker_col,
         "warnings": warnings,
     }

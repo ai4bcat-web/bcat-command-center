@@ -6,16 +6,26 @@ Single source of truth for CSV ingestion normalization.
 Pipeline order (enforced here, not in the caller):
   1. Load raw CSV
   2. Normalize header names (strip, lowercase, spaces→underscores)
-  3. Apply column mapping (many raw variants → internal field name)
-  4. Derive missing fields where possible (e.g. month from a date column)
-  5. Detect schema type from internal fields present
-  6. Validate the *internal* schema (never the raw headers)
-  7. Return result bundle — caller saves/ingests
+  3. Detect schema type from normalized headers (content-based, filename-independent)
+  4. For expenses: apply column mapping, derive missing fields, validate
+  5. Return result bundle — caller saves/ingests
 
-Schema types returned:
-  "expenses"  — has internal fields: month, category, amount
-  "export"    — has internal export fields: rev_type, load_id, customer, gross_revenue, …
-  "unknown"   — could not map to either schema
+Schema types returned (detection order matters — first match wins):
+  "export"           — has a B/I row-level marker column + load/revenue indicators
+                       (TMS signature columns OR marker-column + load-indicator)
+                       → caller passes to csv_ingestor for B/I split
+  "amazon_relay"     — Amazon Relay DSP trip export (driver_name, trip_id,
+                       estimated_cost, load_execution_status columns present)
+                       → caller saves as amazon_relay.csv; finance_agent reads it
+  "brokerage_direct" — pre-processed brokerage CSV (gross_revenue + carrier_pay present,
+                       no B/I marker column)
+                       → caller saves directly as brokerage_loads.csv
+  "ivan_direct"      — pre-processed Ivan Cartage CSV (revenue present, no carrier_pay,
+                       no B/I marker column)
+                       → caller saves directly as ivan_cartage_loads.csv
+  "expenses"         — has internal fields: month, category, amount
+                       → caller writes normalized expense rows
+  "unknown"          — could not map to any known schema
 """
 
 import csv
@@ -78,8 +88,15 @@ EXPENSE_COLUMN_MAP: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Export (loads) signature columns — at least THRESHOLD must be present
-# after header normalization to be classified as an export file
+# Export detection — two independent paths to "export" classification:
+#
+# Path A (TMS signature): at least THRESHOLD of these specific TMS column names
+#   must be present after header normalization.
+#
+# Path B (content-based): at least one MARKER_COLUMN_VARIANT is present AND
+#   at least one LOAD_INDICATOR_COLUMN is present. This covers non-TMS exports
+#   that use different column names (division, business_unit, load_type, etc.)
+#   but still carry B/I row markers.
 # ---------------------------------------------------------------------------
 EXPORT_SIGNATURE_COLUMNS = {
     "revenue_type_rev_type",
@@ -93,12 +110,87 @@ EXPORT_SIGNATURE_COLUMNS = {
 }
 EXPORT_SIGNATURE_THRESHOLD = 2
 
+# Column name variants that carry B/I row-level routing markers.
+# Ordered from most specific (TMS names) to most generic.
+# The bot uses the first match found in the uploaded file.
+MARKER_COLUMN_VARIANTS: list[str] = [
+    "revenue_type_rev_type",   # standard TMS export
+    "revenue_type",
+    "rev_type",
+    "division",                # common in freight management systems
+    "div",
+    "business_unit",
+    "biz_unit",
+    "bu",
+    "load_type",
+    "record_type",
+    "shipment_type",
+    "service_type",
+    "dept",
+    "department",
+    "segment",
+    "line_type",
+    "category_type",
+    # "type" intentionally omitted — too generic, causes false positives
+    # with expense files that also use "type" for expense category
+]
+
+# Load/revenue indicator columns: at least one must be present alongside a
+# marker column to confirm the file is a loads export (not some other file
+# that happens to have a division or segment column).
+LOAD_INDICATOR_COLUMNS: frozenset[str] = frozenset({
+    "shipment_pro",
+    "pro",
+    "load_id",
+    "shipment_id",
+    "gross_revenue",
+    "shipment_customer_total_rates",
+    "customer_rate",
+    "carrier_pay",
+    "shipment_carrier_total_rates",
+    "gross_profit",
+    "shipment_gross_profit",
+})
+
+# ---------------------------------------------------------------------------
+# Direct-replacement schema detection
+#
+# "brokerage_direct" — already-processed brokerage CSV
+#   Required: gross_revenue AND carrier_pay (these are exclusively brokerage metrics)
+#   Excluded: any B/I marker column (would be export instead)
+#
+# "ivan_direct" — already-processed Ivan Cartage CSV
+#   Required: revenue (Ivan uses "revenue", not "gross_revenue")
+#   Excluded: gross_revenue, carrier_pay (would indicate brokerage or export)
+#             any B/I marker column (would be export instead)
+# ---------------------------------------------------------------------------
+BROKERAGE_DIRECT_REQUIRED: frozenset[str] = frozenset({"gross_revenue", "carrier_pay"})
+
+IVAN_DIRECT_REQUIRED: frozenset[str] = frozenset({"revenue"})
+IVAN_DIRECT_EXCLUDE: frozenset[str] = frozenset({"gross_revenue", "carrier_pay"})
+
+# ---------------------------------------------------------------------------
+# Amazon Relay schema detection
+#
+# "amazon_relay" — Amazon Relay DSP trip export
+#   At least THRESHOLD of these normalized column names must be present.
+#   Detected before brokerage_direct/ivan_direct to avoid false positives
+#   (estimated_cost could partially match expense column maps).
+# ---------------------------------------------------------------------------
+AMAZON_RELAY_SIGNATURE_COLUMNS: frozenset[str] = frozenset({
+    "driver_name",
+    "trip_id",
+    "estimated_cost",
+    "load_execution_status",
+})
+AMAZON_RELAY_SIGNATURE_THRESHOLD = 2
+
 
 # ---------------------------------------------------------------------------
 # Public result type
 # ---------------------------------------------------------------------------
 class ParseResult(NamedTuple):
-    schema_type: str          # "expenses" | "export" | "unknown"
+    schema_type: str          # "export" | "brokerage_direct" | "ivan_direct" | "expenses" | "unknown"
     rows: list[dict]          # normalized rows (internal field names)
     raw_headers: list[str]    # original headers from file
     mapping_used: dict        # raw_normalized → internal
@@ -159,10 +251,33 @@ def parse_csv(file_path: Path, encoding: str = "utf-8-sig") -> ParseResult:
     normalized_headers = [_normalize_header(h) for h in raw_headers]
     norm_set = set(normalized_headers)
 
-    # ── 3. Detect export signature FIRST (export files have very specific cols)
+    # ── 3. Detect export schema (content-based, filename-independent) ────────
+    #
+    # Path A — TMS signature columns (original detection, unchanged)
     export_matches = sum(1 for col in EXPORT_SIGNATURE_COLUMNS if col in norm_set)
-    if export_matches >= EXPORT_SIGNATURE_THRESHOLD:
-        logger.info(f"[parser] Detected schema: export ({export_matches} signature columns matched)")
+    is_export_by_tms = export_matches >= EXPORT_SIGNATURE_THRESHOLD
+
+    # Path B — any known B/I marker column variant + at least one load indicator
+    #   Supports: division, business_unit, load_type, record_type, etc.
+    #   Requires a load indicator alongside it so "division" in an expense file
+    #   doesn't get misclassified.
+    detected_marker_col = next(
+        (col for col in MARKER_COLUMN_VARIANTS if col in norm_set), None
+    )
+    has_load_indicator = bool(LOAD_INDICATOR_COLUMNS & norm_set)
+    is_export_by_marker = detected_marker_col is not None and has_load_indicator
+
+    if is_export_by_tms or is_export_by_marker:
+        if is_export_by_tms:
+            logger.info(
+                f"[parser] Detected schema: export "
+                f"(TMS signature — {export_matches} signature columns matched)"
+            )
+        else:
+            logger.info(
+                f"[parser] Detected schema: export "
+                f"(marker column '{detected_marker_col}' + load indicator)"
+            )
         # For export files, return raw rows with normalized headers — csv_ingestor handles mapping
         mapping_used = {nh: nh for nh in normalized_headers}
         norm_rows = []
@@ -174,7 +289,64 @@ def parse_csv(file_path: Path, encoding: str = "utf-8-sig") -> ParseResult:
             derived_fields, warnings, errors, len(norm_rows), 0
         )
 
-    # ── 4. Apply expense column map ────────────────────────────────────────
+    # ── 4a. Detect Amazon Relay schema ────────────────────────────────────────
+    amazon_matches = sum(1 for col in AMAZON_RELAY_SIGNATURE_COLUMNS if col in norm_set)
+    if amazon_matches >= AMAZON_RELAY_SIGNATURE_THRESHOLD:
+        logger.info(
+            f"[parser] Detected schema: amazon_relay "
+            f"({amazon_matches} signature columns matched)"
+        )
+        mapping_used = {nh: nh for nh in normalized_headers}
+        norm_rows = [
+            {_normalize_header(k): v for k, v in raw_row.items() if k}
+            for raw_row in raw_rows
+        ]
+        return ParseResult(
+            "amazon_relay", norm_rows, raw_headers, mapping_used,
+            derived_fields, warnings, errors, len(norm_rows), 0
+        )
+
+    # ── 4b. Detect direct-replacement schemas (already-processed CSVs) ───────
+    #   These are checked before expenses because a file with gross_revenue +
+    #   carrier_pay columns would also partially match some expense mappings.
+
+    # Brokerage direct: gross_revenue + carrier_pay present, no B/I marker
+    if BROKERAGE_DIRECT_REQUIRED.issubset(norm_set) and detected_marker_col is None:
+        logger.info(
+            f"[parser] Detected schema: brokerage_direct "
+            f"(gross_revenue + carrier_pay present, no marker column)"
+        )
+        mapping_used = {nh: nh for nh in normalized_headers}
+        norm_rows = [
+            {_normalize_header(k): v for k, v in raw_row.items() if k}
+            for raw_row in raw_rows
+        ]
+        return ParseResult(
+            "brokerage_direct", norm_rows, raw_headers, mapping_used,
+            derived_fields, warnings, errors, len(norm_rows), 0
+        )
+
+    # Ivan direct: revenue present, no gross_revenue/carrier_pay, no B/I marker
+    if (
+        IVAN_DIRECT_REQUIRED.issubset(norm_set)
+        and not IVAN_DIRECT_EXCLUDE.intersection(norm_set)
+        and detected_marker_col is None
+    ):
+        logger.info(
+            f"[parser] Detected schema: ivan_direct "
+            f"(revenue present, no brokerage columns, no marker column)"
+        )
+        mapping_used = {nh: nh for nh in normalized_headers}
+        norm_rows = [
+            {_normalize_header(k): v for k, v in raw_row.items() if k}
+            for raw_row in raw_rows
+        ]
+        return ParseResult(
+            "ivan_direct", norm_rows, raw_headers, mapping_used,
+            derived_fields, warnings, errors, len(norm_rows), 0
+        )
+
+    # ── 5. Apply expense column map ─────────────────────────────────────────
     # Build mapping: normalized_raw_header → internal_field
     mapping_used: dict[str, str] = {}
     for nh in normalized_headers:
@@ -189,13 +361,13 @@ def parse_csv(file_path: Path, encoding: str = "utf-8-sig") -> ParseResult:
 
     internal_fields = set(mapping_used.values())
 
-    # ── 5. Derive month from _raw_date if month not directly mapped ────────
+    # ── 6. Derive month from _raw_date if month not directly mapped ────────
     if "month" not in internal_fields and "_raw_date" in internal_fields:
         internal_fields.add("month")
         derived_fields.append("month (derived from date column)")
         logger.info("[parser]   Derived field: 'month' will be extracted from date column")
 
-    # ── 6. Detect schema type from internal fields ─────────────────────────
+    # ── 7. Detect expenses schema from internal fields ─────────────────────
     expense_required = {"month", "category", "amount"}
     has_expenses = expense_required.issubset(internal_fields)
 
@@ -205,11 +377,14 @@ def parse_csv(file_path: Path, encoding: str = "utf-8-sig") -> ParseResult:
     else:
         missing_internal = expense_required - internal_fields
         schema_type = "unknown"
+        _hdr_preview = ", ".join(raw_headers[:10])
+        if len(raw_headers) > 10:
+            _hdr_preview += f" … (+{len(raw_headers) - 10} more)"
         errors.append(
             f"Could not map required fields. "
             f"Internal fields resolved: {sorted(internal_fields or ['(none)'])}. "
             f"Still missing: {sorted(missing_internal)}. "
-            f"Raw headers were: {raw_headers}."
+            f"Raw headers (first 10): {_hdr_preview}."
         )
         logger.warning(f"[parser] Unknown schema. Missing internal fields: {sorted(missing_internal)}")
         return ParseResult(
@@ -310,7 +485,12 @@ def format_parse_report(result: ParseResult, filename: str) -> str:
     lines = [f"**{filename}**"]
 
     lines.append(f"Schema detected: `{result.schema_type}`")
-    lines.append(f"Raw headers: `{', '.join(result.raw_headers)}`")
+
+    # Truncate header list to avoid Discord 2000-char limit
+    header_str = ", ".join(result.raw_headers)
+    if len(header_str) > 300:
+        header_str = header_str[:297] + "…"
+    lines.append(f"Raw headers: `{header_str}`")
 
     if result.mapping_used:
         mapped = [f"`{k}` → `{v}`" for k, v in result.mapping_used.items() if not v.startswith("_")]
@@ -324,14 +504,16 @@ def format_parse_report(result: ParseResult, filename: str) -> str:
 
     if result.warnings:
         lines.append("Warnings:")
-        for w in result.warnings[:5]:  # cap at 5 to avoid Discord message limits
+        for w in result.warnings[:5]:
             lines.append(f"  ⚠ {w}")
         if len(result.warnings) > 5:
             lines.append(f"  … and {len(result.warnings) - 5} more warnings.")
 
     if result.errors:
         lines.append("Errors:")
-        for e in result.errors:
+        for e in result.errors[:3]:
             lines.append(f"  ✗ {e}")
+        if len(result.errors) > 3:
+            lines.append(f"  … and {len(result.errors) - 3} more errors.")
 
     return "\n".join(lines)

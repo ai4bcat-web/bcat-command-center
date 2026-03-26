@@ -687,75 +687,7 @@ th {
     margin-bottom: 10px;
 }
 
-/* Driver table row hover */
-.amazon-driver-row:hover td {
-    background: #131a28;
-}
-
-.amazon-table-hint {
-    font-size: 0.72rem;
-    color: #475569;
-    margin-bottom: 10px;
-}
-
-/* Driver type chips */
-.amazon-type-chip {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 100px;
-    font-size: 0.68rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.amazon-type-chip.company {
-    background: #1e3a5f;
-    color: #60a5fa;
-    border: 1px solid #1e4d8c;
-}
-
-.amazon-type-chip.owner-op {
-    background: #1a2e1a;
-    color: #4ade80;
-    border: 1px solid #166534;
-}
-
-/* Drill-down header */
-.amazon-drilldown-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 4px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid #20263a;
-}
-
-.amazon-back-btn {
-    background: none;
-    border: 1px solid #334155;
-    color: #94a3b8;
-    padding: 5px 12px;
-    border-radius: 6px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
-    white-space: nowrap;
-}
-
-.amazon-back-btn:hover {
-    border-color: #64748b;
-    color: #e2e8f0;
-}
-
-.amazon-drilldown-name {
-    font-size: 1rem;
-    font-weight: 700;
-    color: #f1f5f9;
-}
-
-/* Mock data notice — add via JS if needed */
+/* ── Amazon data source notices ──────────────────────────────────────────── */
 .amazon-mock-notice {
     display: inline-flex;
     align-items: center;
@@ -768,4 +700,584 @@ th {
     border-radius: 4px;
     padding: 3px 10px;
     margin-bottom: 14px;
+}
+
+.amazon-live-notice {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #22c55e;
+    background: #0a1f0a;
+    border: 1px solid #166534;
+    border-radius: 4px;
+    padding: 3px 10px;
+    margin-bottom: 14px;
+}
+
+/* ── Per-driver KPI summary cards ───────────────────────────────────────── */
+.amazon-driver-kpi-row-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.amazon-driver-kpi-card {
+    flex: 1 1 200px;
+    min-width: 180px;
+    background: #0d1424;
+    border: 1px solid #1e2a3a;
+    border-radius: 10px;
+    padding: 14px 18px;
+}
+
+.amazon-driver-kpi-name {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #7dd3fc;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.amazon-driver-kpi-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+    padding: 3px 0;
+    color: #e2e8f0;
+}
+
+.amazon-driver-kpi-label {
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+/* Net After Expenses row — visual separator from revenue/expenses */
+.amazon-driver-kpi-net {
+    border-top: 1px solid #1e2a3a;
+    margin-top: 6px;
+    padding-top: 6px;
+    font-weight: 700;
+}
+
+/* Pay-split rows — 3-col layout: label | pct | amount */
+.amazon-driver-kpi-split-header {
+    border-top: 1px solid #1e3a5f;
+    margin-top: 8px;
+    padding-top: 6px;
+}
+
+.amazon-driver-kpi-row.amazon-driver-kpi-split-header,
+.amazon-driver-kpi-row:has(.amazon-driver-kpi-pct) {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.amazon-driver-kpi-pct {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #475569;
+    text-align: right;
+    min-width: 30px;
+}
+
+/* "All Weeks" pct note */
+.amazon-driver-kpi-pct-note {
+    font-size: 0.68rem;
+    color: #475569;
+    font-style: italic;
+    display: block;
+    padding-top: 4px;
+}
+
+.amazon-negative {
+    color: #f87171;
+    font-weight: 700;
+}
+
+/* ── Overall total bar (above driver list) ───────────────────────────────── */
+.amazon-overall-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #0d1424;
+    border: 1px solid #1e2a3a;
+    border-radius: 8px;
+    padding: 12px 18px;
+    margin-bottom: 12px;
+    font-size: 0.82rem;
+    color: #94a3b8;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.amazon-overall-total strong {
+    color: #f1f5f9;
+}
+
+.amazon-filter-note {
+    color: #475569;
+    font-size: 0.72rem;
+}
+
+/* ── Driver list container ───────────────────────────────────────────────── */
+.amazon-driver-list {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+/* ── Per-driver section ──────────────────────────────────────────────────── */
+.amazon-driver-section {
+    border-bottom: 1px solid #1a2236;
+}
+
+.amazon-driver-section:last-child {
+    border-bottom: none;
+}
+
+/* Collapsible body — hidden by default, shown when .expanded */
+.amazon-driver-body {
+    display: none;
+    border-top: 1px solid #151e30;
+}
+
+.amazon-driver-section.expanded .amazon-driver-body {
+    display: block;
+}
+
+/* ── Driver header (always visible, clickable) ───────────────────────────── */
+.amazon-driver-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 18px;
+    background: #0b1220;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s;
+}
+
+.amazon-driver-header:hover {
+    background: #0f1829;
+}
+
+/* Chevron — rotates when expanded */
+.amazon-driver-chevron {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    display: inline-block;
+    border-right: 2px solid #475569;
+    border-bottom: 2px solid #475569;
+    transform: rotate(-45deg);
+    transition: transform 0.18s ease, border-color 0.12s;
+    position: relative;
+    top: -2px;
+}
+
+.amazon-driver-section.expanded .amazon-driver-chevron {
+    transform: rotate(45deg);
+    top: -4px;
+    border-color: #06b6d4;
+}
+
+.amazon-driver-name {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    flex: 1;
+}
+
+.amazon-driver-meta {
+    font-size: 0.74rem;
+    color: #475569;
+    white-space: nowrap;
+}
+
+.amazon-driver-total {
+    font-size: 0.9rem;
+    font-weight: 700;
+    white-space: nowrap;
+    min-width: 90px;
+    text-align: right;
+}
+
+/* ── Download CSV button ─────────────────────────────────────────────────── */
+.amazon-download-btn {
+    background: none;
+    border: 1px solid #1e3a5f;
+    color: #60a5fa;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    flex-shrink: 0;
+}
+
+.amazon-download-btn:hover {
+    background: #1e3a5f;
+    border-color: #3b82f6;
+    color: #bfdbfe;
+}
+
+/* ── Per-trip table ──────────────────────────────────────────────────────── */
+.amazon-trip-table {
+    width: 100%;
+}
+
+.amazon-trip-table thead th {
+    font-size: 0.72rem;
+    color: #475569;
+    padding: 7px 14px;
+    text-align: left;
+    border-bottom: 1px solid #1a2236;
+    background: #06090f;
+}
+
+.amazon-trip-table tbody tr:hover td {
+    background: #0f1928;
+}
+
+.amazon-trip-table tfoot .driver-total-row td {
+    padding: 8px 14px;
+    font-size: 0.8rem;
+    color: #64748b;
+    border-top: 1px solid #1a2236;
+    background: #07090f;
+}
+
+.trip-id-cell {
+    font-family: monospace;
+    font-size: 0.77rem;
+    color: #94a3b8;
+}
+
+/* ── Status chip ─────────────────────────────────────────────────────────── */
+.amazon-status-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 100px;
+    font-size: 0.67rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: #0a1f0a;
+    color: #4ade80;
+    border: 1px solid #166534;
+}
+
+/* ── Sub-section (Revenue / Deductions) ──────────────────────────────────── */
+
+.amazon-sub-section {
+    border-top: 1px solid #111927;
+}
+
+/* Sub-section body: open by default; .sub-collapsed hides it */
+.amazon-sub-body {
+    display: block;
+}
+
+.amazon-sub-section.sub-collapsed .amazon-sub-body {
+    display: none;
+}
+
+.amazon-sub-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px 10px 32px;  /* extra left indent under driver header */
+    background: #080e1a;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s;
+}
+
+.amazon-sub-header:hover {
+    background: #0c1424;
+}
+
+/* Sub-chevron: smaller, starts pointing right (collapsed = -45°), open = 45° */
+.amazon-sub-chevron {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    display: inline-block;
+    border-right: 2px solid #334155;
+    border-bottom: 2px solid #334155;
+    transform: rotate(45deg);   /* pointing down = open */
+    transition: transform 0.15s ease, border-color 0.12s;
+    position: relative;
+    top: -1px;
+}
+
+.amazon-sub-section.sub-collapsed .amazon-sub-chevron {
+    transform: rotate(-45deg);  /* pointing right = collapsed */
+    top: 0;
+}
+
+.amazon-sub-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #94a3b8;
+    flex: 1;
+}
+
+.amazon-sub-meta {
+    font-size: 0.72rem;
+    color: #334155;
+    white-space: nowrap;
+}
+
+.amazon-sub-total {
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+    text-align: right;
+    min-width: 80px;
+}
+
+/* ── Deductions table ────────────────────────────────────────────────────── */
+
+.amazon-ded-table thead th {
+    background: #04060e;
+}
+
+.deduction-row-tbd td {
+    color: #475569;
+    font-style: italic;
+}
+
+.deduction-amount {
+    color: #f87171;
+    font-weight: 600;
+}
+
+.deduction-amount-cell {
+    text-align: right;
+}
+
+/* ── TBD badge ───────────────────────────────────────────────────────────── */
+.amazon-tbd-badge {
+    display: inline-block;
+    font-size: 0.63rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #f59e0b;
+    background: #1c1200;
+    border: 1px solid #78350f;
+    border-radius: 3px;
+    padding: 1px 5px;
+    margin-left: 5px;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+/* ── Source badges ───────────────────────────────────────────────────────── */
+.amazon-source-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.amazon-source-fixed {
+    color: #64748b;
+    background: #0d1424;
+    border: 1px solid #1e2a3a;
+}
+
+.amazon-source-fuel-report {
+    color: #f59e0b;
+    background: #1c1200;
+    border: 1px solid #78350f;
+}
+
+.amazon-source-manual {
+    color: #34d399;
+    background: #052e1a;
+    border-color: #065f46;
+}
+
+.amazon-source-manual-adjustment {
+    color: #a78bfa;
+    background: #120d1f;
+    border: 1px solid #4c1d95;
+}
+
+/* ── Net revenue row ─────────────────────────────────────────────────────── */
+.amazon-net-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 11px 18px;
+    background: #060c18;
+    border-top: 1px solid #111927;
+    font-size: 0.82rem;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.amazon-net-label {
+    font-weight: 700;
+    color: #cbd5e1;
+    font-size: 0.82rem;
+}
+
+.amazon-net-row.provisional .amazon-net-label::after {
+    content: '';  /* label stays clean; badge is in JS */
+}
+
+/* ── Payout % badge in driver header ─────────────────────────────────────── */
+.amazon-driver-pct-badge {
+    display: inline-block;
+    background: #1e3a5f;
+    color: #93c5fd;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 10px;
+    letter-spacing: 0.02em;
+}
+
+/* ── Payout % control ────────────────────────────────────────────────────── */
+.amazon-payout-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    background: #07101f;
+    border-top: 1px solid #111927;
+    flex-wrap: wrap;
+}
+
+.amazon-payout-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #94a3b8;
+    white-space: nowrap;
+    min-width: 62px;
+}
+
+.amazon-payout-presets {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.amazon-payout-btn {
+    padding: 3px 10px;
+    border-radius: 5px;
+    border: 1px solid #1e3a5f;
+    background: #0d1f36;
+    color: #94a3b8;
+    font-size: 0.76rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    line-height: 1.6;
+}
+
+.amazon-payout-btn:hover {
+    background: #1a3352;
+    color: #e2e8f0;
+    border-color: #2d6ab0;
+}
+
+.amazon-payout-btn.active {
+    background: #1d4ed8;
+    color: #fff;
+    border-color: #3b82f6;
+}
+
+.amazon-payout-custom {
+    width: 64px;
+    padding: 3px 6px;
+    border-radius: 5px;
+    border: 1px solid #1e3a5f;
+    background: #0d1f36;
+    color: #e2e8f0;
+    font-size: 0.76rem;
+    text-align: center;
+    outline: none;
+}
+
+.amazon-payout-custom:focus {
+    border-color: #3b82f6;
+    background: #0a1929;
+}
+
+/* hide number input spinners */
+.amazon-payout-custom::-webkit-outer-spin-button,
+.amazon-payout-custom::-webkit-inner-spin-button { -webkit-appearance: none; }
+.amazon-payout-custom[type=number] { -moz-appearance: textfield; }
+
+.amazon-payout-all-note {
+    font-size: 0.75rem;
+    color: #475569;
+    font-style: italic;
+}
+
+.amazon-payout-save-btn {
+    padding: 3px 10px;
+    border-radius: 5px;
+    border: 1px solid #1e3a5f;
+    background: #0f2744;
+    color: #93c5fd;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    margin-left: 4px;
+}
+.amazon-payout-save-btn:hover {
+    background: #1d4ed8;
+    color: #fff;
+    border-color: #1d4ed8;
+}
+
+/* ── Auto-discovered driver notice ──────────────────────────────────────── */
+.amazon-default-config-note {
+    font-size: 0.75rem;
+    color: #7dd3fc;
+    background: #0a1f38;
+    border-left: 3px solid #1d4ed8;
+    padding: 6px 14px;
+    margin: 0;
+}
+
+/* ── Final payout row ────────────────────────────────────────────────────── */
+.amazon-final-payout-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 18px;
+    background: #040d1a;
+    border-top: 2px solid #1e3a5f;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.amazon-final-payout-row.provisional {
+    border-top-color: #78350f;
+    background: #050e1c;
+}
+
+.amazon-pct-hint {
+    font-weight: 400;
+    color: #475569;
+    font-size: 0.76rem;
 }

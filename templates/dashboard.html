@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/static/marketing.css">
     <link rel="stylesheet" href="/static/sales.css">
     <link rel="stylesheet" href="/static/aiden.css">
+    <link rel="stylesheet" href="/static/ivan_ops.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -20,6 +21,7 @@
             <button class="cc-company-tab" onclick="openCompany(this,'ivan')">Ivan Cartage</button>
             <button class="cc-company-tab" onclick="openCompany(this,'bestcare')">Best Care Auto Transport</button>
             <button class="cc-company-tab" onclick="openCompany(this,'aiden')">Aiden</button>
+            <button class="cc-company-tab" onclick="openCompany(this,'amazon')">Amazon DSP</button>
             <button class="cc-company-tab" onclick="openCompany(this,'agents')">Agents</button>
         </div>
         <form method="POST" action="/logout" style="margin:0">
@@ -58,25 +60,17 @@
             <div id="ivan-finance-content"></div>
         </div>
         <div id="ivan-marketing" class="cc-dept-panel" data-dept="marketing">
-            <div id="ivan-marketing-app"></div>
+            <div id="ivan-equipment-content"></div>
         </div>
         <div id="ivan-sales" class="cc-dept-panel" data-dept="sales">
-            <div class="cc-placeholder">
-                <div class="cc-placeholder-icon">🎯</div>
-                <div class="cc-placeholder-title">Ivan Cartage — Sales</div>
-                <div class="cc-placeholder-sub">Sales pipeline for Ivan Cartage will appear here.</div>
-            </div>
+            <div id="ivan-drivers-content"></div>
         </div>
     </div>
 
     <!-- Best Care Auto Transport -->
     <div id="cc-company-bestcare" class="cc-company-panel">
         <div id="bestcare-finance" class="cc-dept-panel active" data-dept="finance">
-            <div class="cc-placeholder">
-                <div class="cc-placeholder-icon">🚗</div>
-                <div class="cc-placeholder-title">Best Care Auto Transport — Finance</div>
-                <div class="cc-placeholder-sub">Finance data for Best Care will appear here.</div>
-            </div>
+            <div id="bestcare-finance-content"></div>
         </div>
         <div id="bestcare-marketing" class="cc-dept-panel" data-dept="marketing">
             <div id="bestcare-marketing-app"></div>
@@ -84,6 +78,11 @@
         <div id="bestcare-sales" class="cc-dept-panel" data-dept="sales">
             <div id="bestcare-sales-app"></div>
         </div>
+    </div>
+
+    <!-- Amazon DSP (no dept tabs) -->
+    <div id="cc-company-amazon" class="cc-company-panel">
+        <div id="amazon-panel-content" class="amazon-section"></div>
     </div>
 
     <!-- Agents (no dept tabs) -->
@@ -99,5 +98,6 @@
     <script src="/static/marketing.js"></script>
     <script src="/static/sales.js"></script>
     <script src="/static/aiden.js"></script>
+    <script src="/static/ivan_ops.js"></script>
 </body>
 </html>

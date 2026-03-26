@@ -11,7 +11,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import config                                                    # must be first — raises if SECRET_KEY missing in prod
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for
-from auth import login_required, verify_credentials
+from auth import login_required
 from finance_agent import FinanceAgent, get_ivan_expense_metrics
 import agent_registry
 import marketing_data as _md
@@ -65,14 +65,48 @@ except Exception as _bc_import_err:
 
 app = Flask(__name__)
 
-# ── Flask configuration from config.py ───────────────────────────────────────
-app.secret_key                       = config.SECRET_KEY
-app.config['SESSION_COOKIE_NAME']    = config.SESSION_COOKIE_NAME
-app.config['SESSION_COOKIE_HTTPONLY']= config.SESSION_COOKIE_HTTPONLY
-app.config['SESSION_COOKIE_SECURE']  = config.SESSION_COOKIE_SECURE
-app.config['SESSION_COOKIE_SAMESITE']= config.SESSION_COOKIE_SAMESITE
-app.config['SESSION_COOKIE_DOMAIN']  = config.SESSION_COOKIE_DOMAIN
-app.config['PERMANENT_SESSION_LIFETIME'] = config.PERMANENT_SESSION_LIFETIME
+# ── Core config ───────────────────────────────────────────────────────────────
+app.secret_key                            = config.SECRET_KEY
+app.config['SESSION_COOKIE_NAME']         = config.SESSION_COOKIE_NAME
+app.config['SESSION_COOKIE_HTTPONLY']     = config.SESSION_COOKIE_HTTPONLY
+app.config['SESSION_COOKIE_SECURE']       = config.SESSION_COOKIE_SECURE
+app.config['SESSION_COOKIE_SAMESITE']     = config.SESSION_COOKIE_SAMESITE
+app.config['SESSION_COOKIE_DOMAIN']       = config.SESSION_COOKIE_DOMAIN
+app.config['PERMANENT_SESSION_LIFETIME']  = config.PERMANENT_SESSION_LIFETIME
+
+# ── Extensions ────────────────────────────────────────────────────────────────
+from extensions import db, migrate, login_manager, bcrypt, limiter, csrf
+
+if config.DATABASE_URL:
+    app.config['SQLALCHEMY_DATABASE_URI']       = config.DATABASE_URL
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config['WTF_CSRF_ENABLED']               = config.WTF_CSRF_ENABLED
+    app.config['RATELIMIT_STORAGE_URI']          = config.REDIS_URL
+
+    db.init_app(app)
+    migrate.init_app(app, db)
+    bcrypt.init_app(app)
+    limiter.init_app(app)
+    csrf.init_app(app)
+
+    login_manager.init_app(app)
+    login_manager.login_view    = 'login'
+    login_manager.login_message = ''
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        from models import User
+        return User.query.get(int(user_id))
+
+    # Register CLI commands
+    from cli import create_admin, seed_roles, create_user, list_users, reset_password
+    app.cli.add_command(create_admin)
+    app.cli.add_command(seed_roles)
+    app.cli.add_command(create_user)
+    app.cli.add_command(list_users)
+    app.cli.add_command(reset_password)
+
+_DB_ENABLED = bool(config.DATABASE_URL)
 
 finance_agent    = FinanceAgent()
 marketing_agent  = MarketingAgent()
@@ -88,8 +122,10 @@ agent_registry.register("CoordinatorAgent",  "Message routing and agent orchestr
 # ── Auth routes (public) ──────────────────────────────────────────────────────
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit('20 per minute', error_message='Too many login attempts. Try again in a minute.')
 def login():
-    if session.get('authenticated'):
+    from flask_login import current_user, login_user
+    if current_user.is_authenticated:
         return redirect(url_for('dashboard'))
 
     error = None
@@ -99,17 +135,38 @@ def login():
         email    = (request.form.get('email')    or '').strip()
         password = (request.form.get('password') or '').strip()
 
-        if verify_credentials(email, password):
-            session.permanent = True
-            session['authenticated'] = True
-            session['user_email']    = email
-            next_url = request.form.get('next') or '/'
-            # Safety: only allow relative redirects
-            if not next_url.startswith('/'):
-                next_url = '/'
-            return redirect(next_url)
-
-        error = 'Invalid email or password.'
+        if _DB_ENABLED:
+            from models import User as UserModel
+            from extensions import bcrypt as _bcrypt
+            user = UserModel.query.filter_by(email=email.lower(), is_active=True).first()
+            if user and _bcrypt.check_password_hash(user.password_hash, password):
+                from datetime import datetime
+                user.last_login_at = datetime.utcnow()
+                from extensions import db as _db
+                _db.session.commit()
+                login_user(user, remember=True)
+                next_url = request.form.get('next') or '/'
+                if not next_url.startswith('/'):
+                    next_url = '/'
+                return redirect(next_url)
+            error = 'Invalid email or password.'
+        else:
+            # Fallback: legacy single-admin env-var auth (dev/no-DB mode)
+            from werkzeug.security import check_password_hash
+            stored_email = (config.ADMIN_EMAIL or '').strip().lower()
+            stored_hash  = (config.ADMIN_PASSWORD_HASH or '').strip()
+            if (email.lower() == stored_email
+                    and stored_hash
+                    and check_password_hash(stored_hash, password)):
+                from flask import session as _session
+                _session.permanent = True
+                _session['authenticated'] = True
+                _session['user_email']    = email
+                next_url = request.form.get('next') or '/'
+                if not next_url.startswith('/'):
+                    next_url = '/'
+                return redirect(next_url)
+            error = 'Invalid email or password.'
 
     return render_template('login.html', error=error, email=email,
                            next=request.args.get('next', ''))
@@ -117,7 +174,11 @@ def login():
 
 @app.route('/logout', methods=['POST'])
 def logout():
-    session.clear()
+    from flask_login import logout_user
+    if _DB_ENABLED:
+        logout_user()
+    from flask import session as _session
+    _session.clear()
     return redirect(url_for('login'))
 
 
@@ -133,6 +194,143 @@ def dashboard():
 @login_required
 def domain_map():
     return render_template('domain_map.html')
+
+
+# ── Admin panel ───────────────────────────────────────────────────────────────
+
+@app.route('/admin')
+@login_required
+def admin_panel():
+    if not _DB_ENABLED:
+        return 'Admin panel requires database. Set DATABASE_URL.', 503
+    from flask_login import current_user
+    if not current_user.is_admin:
+        return redirect(url_for('dashboard'))
+    from models import User, Role
+    users = User.query.order_by(User.created_at.desc()).all()
+    roles = Role.query.all()
+    return render_template('admin.html', users=users, roles=roles)
+
+
+@app.route('/api/admin/users', methods=['GET'])
+@login_required
+def api_admin_users():
+    if not _DB_ENABLED:
+        return jsonify({'error': 'No database'}), 503
+    from flask_login import current_user
+    if not current_user.is_admin:
+        return jsonify({'error': 'Forbidden'}), 403
+    from models import User
+    users = User.query.order_by(User.created_at.desc()).all()
+    return jsonify([{
+        'id':           u.id,
+        'email':        u.email,
+        'name':         u.name,
+        'is_active':    u.is_active,
+        'roles':        u.role_names,
+        'last_login':   u.last_login_at.isoformat() if u.last_login_at else None,
+        'created_at':   u.created_at.isoformat()
+    } for u in users])
+
+
+@app.route('/api/admin/users', methods=['POST'])
+@login_required
+def api_admin_create_user():
+    if not _DB_ENABLED:
+        return jsonify({'error': 'No database'}), 503
+    from flask_login import current_user
+    if not current_user.is_admin:
+        return jsonify({'error': 'Forbidden'}), 403
+    from models import User, Role
+    from extensions import bcrypt as _bcrypt, db as _db
+
+    data     = request.get_json() or {}
+    email    = (data.get('email')    or '').strip().lower()
+    password = (data.get('password') or '').strip()
+    name     = (data.get('name')     or '').strip()
+    role_names = data.get('roles', ['viewer'])
+
+    if not email or not password:
+        return jsonify({'error': 'email and password are required'}), 400
+    if User.query.filter_by(email=email).first():
+        return jsonify({'error': 'Email already exists'}), 409
+
+    pw_hash = _bcrypt.generate_password_hash(password).decode('utf-8')
+    user = User(email=email, password_hash=pw_hash,
+                name=name or email.split('@')[0], is_active=True)
+
+    for rname in role_names:
+        role = Role.query.filter_by(name=rname).first()
+        if role:
+            user.roles.append(role)
+
+    _db.session.add(user)
+    _db.session.commit()
+    return jsonify({'id': user.id, 'email': user.email, 'roles': user.role_names}), 201
+
+
+@app.route('/api/admin/users/<int:user_id>', methods=['PUT'])
+@login_required
+def api_admin_update_user(user_id):
+    if not _DB_ENABLED:
+        return jsonify({'error': 'No database'}), 503
+    from flask_login import current_user
+    if not current_user.is_admin:
+        return jsonify({'error': 'Forbidden'}), 403
+    from models import User, Role
+    from extensions import bcrypt as _bcrypt, db as _db
+
+    user = User.query.get_or_404(user_id)
+    data = request.get_json() or {}
+
+    if 'name'      in data: user.name      = data['name']
+    if 'is_active' in data: user.is_active = bool(data['is_active'])
+    if 'password'  in data and data['password']:
+        user.password_hash = _bcrypt.generate_password_hash(data['password']).decode('utf-8')
+    if 'roles'     in data:
+        user.roles = [r for r in
+                      [Role.query.filter_by(name=rn).first() for rn in data['roles']]
+                      if r]
+
+    _db.session.commit()
+    return jsonify({'id': user.id, 'email': user.email, 'roles': user.role_names})
+
+
+@app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
+@login_required
+def api_admin_delete_user(user_id):
+    if not _DB_ENABLED:
+        return jsonify({'error': 'No database'}), 503
+    from flask_login import current_user
+    if not current_user.is_admin:
+        return jsonify({'error': 'Forbidden'}), 403
+    from models import User
+    from extensions import db as _db
+
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot delete yourself'}), 400
+    _db.session.delete(user)
+    _db.session.commit()
+    return jsonify({'deleted': user_id})
+
+
+@app.route('/api/me')
+@login_required
+def api_me():
+    """Return current user's identity and permissions for the frontend."""
+    if _DB_ENABLED:
+        from flask_login import current_user
+        return jsonify(current_user.permissions_for_frontend())
+    # Legacy no-DB mode: return full admin access
+    from flask import session as _session
+    return jsonify({
+        'is_admin': True,
+        'name':     _session.get('user_email', 'Admin'),
+        'email':    _session.get('user_email', ''),
+        'companies': ['bcat', 'ivan', 'bestcare', 'amazon', 'aiden', 'agents'],
+        'tabs': {}
+    })
 
 
 @app.route('/api/dashboard', methods=['GET'])

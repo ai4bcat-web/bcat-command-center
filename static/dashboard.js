@@ -14,6 +14,10 @@ function _loadPermissions(callback) {
 function _applyPermissions(perms) {
     if (!perms || perms.is_admin) return; // admin sees everything
 
+    // Hide global summary cards for restricted users
+    var globalMetrics = document.getElementById('global-metrics');
+    if (globalMetrics) globalMetrics.style.display = 'none';
+
     var companies = perms.companies || [];
 
     // Hide company tabs the user cannot access

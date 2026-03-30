@@ -39,22 +39,57 @@ function _applyPermissions(perms) {
     }
 
     // Per-company tab restrictions
+    // Ivan uses dept ids 'marketing'/'sales' for what permissions call 'equipment'/'drivers'
+    var PERM_TO_DEPT = {
+        ivan: { finance: 'finance', equipment: 'marketing', drivers: 'sales' }
+    };
+
     var tabs = perms.tabs || {};
-    Object.keys(tabs).forEach(function(company) {
-        var allowedTabs = tabs[company];
-        var deptBar = document.getElementById('cc-dept-bar');
-        if (!deptBar) return;
-        deptBar.querySelectorAll('.cc-dept-tab').forEach(function(btn) {
-            var onclick = btn.getAttribute('onclick') || '';
-            var match = onclick.match(/'([^']+)'\)/);
-            if (!match) return;
-            var tabName = match[1];
-            if (allowedTabs.indexOf(tabName) < 0) {
-                btn.style.display = 'none';
-            }
-        });
-    });
+    // Store restrictions so openCompany can re-apply them on company switch
+    _userPerms = perms;
+
+    _applyDeptTabRestrictions(tabs, PERM_TO_DEPT);
 }
+
+function _applyDeptTabRestrictions(tabs, permToDeptMap) {
+    if (!tabs || !Object.keys(tabs).length) return;
+    var deptBar = document.getElementById('cc-dept-bar');
+    if (!deptBar) return;
+
+    // Reset all tabs to visible first
+    deptBar.querySelectorAll('.cc-dept-tab').forEach(function(btn) {
+        btn.style.display = '';
+    });
+
+    var activeCompany = typeof _activeCompany !== 'undefined' ? _activeCompany : null;
+    var allowedTabs = tabs[activeCompany];
+    if (!allowedTabs) return; // no restriction for this company
+
+    var mapping = (permToDeptMap || PERM_TO_DEPT_MAP)[activeCompany] || {};
+    // Convert permission tab names to actual dept ids
+    var allowedDeptIds = allowedTabs.map(function(t) { return mapping[t] || t; });
+
+    deptBar.querySelectorAll('.cc-dept-tab').forEach(function(btn) {
+        var onclick = btn.getAttribute('onclick') || '';
+        var match = onclick.match(/'([^']+)'\)/);
+        if (!match) return;
+        var deptId = match[1];
+        if (allowedDeptIds.indexOf(deptId) < 0) {
+            btn.style.display = 'none';
+        }
+    });
+
+    // If active dept is now hidden, switch to first allowed dept
+    if (allowedDeptIds.length > 0) {
+        var firstAllowedBtn = deptBar.querySelector('.cc-dept-tab[onclick*="' + allowedDeptIds[0] + '"]');
+        if (firstAllowedBtn) openDept(firstAllowedBtn, allowedDeptIds[0]);
+    }
+}
+
+// Global mapping used by _applyDeptTabRestrictions when called from openCompany
+var PERM_TO_DEPT_MAP = {
+    ivan: { finance: 'finance', equipment: 'marketing', drivers: 'sales' }
+};
 
 // Show admin link if user is admin
 function _maybeShowAdminLink(perms) {
@@ -2044,6 +2079,11 @@ function openCompany(btn, companyId) {
 
     // Apply active dept within the newly shown company
     _applyDept();
+
+    // Re-apply per-company tab restrictions for non-admin users
+    if (_userPerms && !_userPerms.is_admin && _userPerms.tabs) {
+        _applyDeptTabRestrictions(_userPerms.tabs, PERM_TO_DEPT_MAP);
+    }
 
     if (companyId === 'agents') loadAgents();
     if (companyId === 'amazon') _renderAmazonSection();

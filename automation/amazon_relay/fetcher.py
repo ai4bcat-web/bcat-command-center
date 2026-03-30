@@ -324,7 +324,7 @@ async def _dismiss_interstitials(page) -> None:
         pass   # modal not present — that's fine
 
 
-async def _navigate_to_trips_history(page) -> None:
+async def _navigate_to_trips_history(page, already_on_tours: bool = False) -> None:
     """
     Navigate to the Trips → History tab on Amazon Relay.
 
@@ -336,10 +336,11 @@ async def _navigate_to_trips_history(page) -> None:
 
     NOTE: /trips 404s. The real path is /tours/.
     """
-    log.info(f"Navigating to {SEL.RELAY_TRIPS_URL} …")
-    await page.goto(SEL.RELAY_TRIPS_URL, wait_until="domcontentloaded",
-                    timeout=SEL.NAV_TIMEOUT_MS)
-    await page.wait_for_timeout(4_000)   # let SPA finish rendering
+    if not already_on_tours:
+        log.info(f"Navigating to {SEL.RELAY_TRIPS_URL} …")
+        await page.goto(SEL.RELAY_TRIPS_URL, wait_until="domcontentloaded",
+                        timeout=SEL.NAV_TIMEOUT_MS)
+        await page.wait_for_timeout(4_000)   # let SPA finish rendering
 
     log.info(f"Post-navigation URL: {page.url}  title: {await page.title()!r}")
 
@@ -485,27 +486,29 @@ async def fetch_relay_csv() -> Path:
                         log.info(f"Injected {len(saved_cookies)} saved cookies.")
                     page = await context.new_page()
 
-                # ── Check session / login ──────────────────────────────────────
-                await page.goto(SEL.RELAY_BASE_URL, wait_until="domcontentloaded",
+                # ── Check session by navigating to an auth-required page ─────
+                # Go directly to /tours/ — if Amazon redirects to sign-in the
+                # session is invalid and we must do a full login.
+                # Never check the base URL (marketing page — never requires auth).
+                log.info("Checking session via /tours/ …")
+                await page.goto(SEL.RELAY_TRIPS_URL, wait_until="domcontentloaded",
                                 timeout=SEL.NAV_TIMEOUT_MS)
                 await page.wait_for_timeout(3_000)
 
-                if not await _is_logged_in(page):
-                    log.info("Session not valid — performing full login …")
+                if "sign-in" in page.url.lower() or "ap/signin" in page.url.lower():
+                    log.info("Redirected to sign-in — session invalid, performing full login …")
                     await _login(page)
-                    if _DB_SESSION:
-                        fresh = await context.cookies()
-                        _save_cookies_to_db(fresh, status="ok")
-                else:
-                    log.info("Session valid — skipping login.")
-
-                await _navigate_to_trips_history(page)
-                csv_path = await _trigger_csv_download(page)
-
-                # Refresh stored cookies after successful run
-                if _DB_SESSION:
                     fresh = await context.cookies()
                     _save_cookies_to_db(fresh, status="ok")
+                else:
+                    log.info(f"Session valid — already on {page.url}")
+
+                await _navigate_to_trips_history(page, already_on_tours=True)
+                csv_path = await _trigger_csv_download(page)
+
+                # Save fresh cookies after every successful run (both strategies)
+                fresh = await context.cookies()
+                _save_cookies_to_db(fresh, status="ok")
 
                 await context.close()
                 log.info(f"Fetch completed successfully: {csv_path}")

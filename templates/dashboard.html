@@ -25,6 +25,7 @@
             <button class="cc-company-tab" onclick="openCompany(this,'agents')">Agents</button>
         </div>
         <form method="POST" action="/logout" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="cc-logout-btn" title="Sign out">Sign out</button>
         </form>
     </div>

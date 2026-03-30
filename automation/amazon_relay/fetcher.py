@@ -500,10 +500,12 @@ async def fetch_relay_csv() -> Path:
                     await _login(page)
                     fresh = await context.cookies()
                     _save_cookies_to_db(fresh, status="ok")
+                    # After login we land on homepage — need full /tours/ navigation
+                    await _navigate_to_trips_history(page, already_on_tours=False)
                 else:
                     log.info(f"Session valid — already on {page.url}")
-
-                await _navigate_to_trips_history(page, already_on_tours=True)
+                    # Already on /tours/ from session check — skip re-navigation
+                    await _navigate_to_trips_history(page, already_on_tours=True)
                 csv_path = await _trigger_csv_download(page)
 
                 # Save fresh cookies after every successful run (both strategies)

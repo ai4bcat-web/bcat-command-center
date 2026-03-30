@@ -57,6 +57,7 @@ def _seed_roles_and_permissions():
     viewer_role = get_or_create_role('viewer', 'Read-only access to all companies')
     ivan_manager_role = get_or_create_role('ivan_manager', 'Full access to Ivan Cartage only')
     amazon_operator_role = get_or_create_role('amazon_operator', 'Access to Amazon DSP only')
+    ivan_equipment_role  = get_or_create_role('ivan_equipment',  'Ivan Cartage — equipment tab only')
     db.session.flush()
 
     # Admin: all permissions
@@ -71,7 +72,7 @@ def _seed_roles_and_permissions():
     viewer_perms = [p for k, p in perms.items() if k.startswith('view_')]
     viewer_role.permissions = viewer_perms
 
-    # Ivan manager: ivan company + tabs
+    # Ivan manager: ivan company + all ivan tabs + upload/edit
     ivan_perms = [p for k, p in perms.items()
                   if 'ivan' in k or k == 'upload_csv' or k == 'edit_data']
     ivan_manager_role.permissions = ivan_perms
@@ -81,9 +82,16 @@ def _seed_roles_and_permissions():
                     if 'amazon' in k or k == 'upload_csv']
     amazon_operator_role.permissions = amazon_perms
 
+    # Ivan equipment: ivan company + equipment tab only (read-only)
+    ivan_equipment_role.permissions = [
+        p for k, p in perms.items()
+        if k in ('view_company_ivan', 'view_tab_ivan_equipment')
+    ]
+
     db.session.commit()
     return {r.name: r for r in [admin_role, analyst_role, viewer_role,
-                                  ivan_manager_role, amazon_operator_role]}
+                                  ivan_manager_role, amazon_operator_role,
+                                  ivan_equipment_role]}
 
 
 @click.command('create-admin')

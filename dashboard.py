@@ -200,11 +200,12 @@ def login():
 @app.route('/logout', methods=['POST'])
 def logout():
     from flask_login import logout_user
-    if _DB_ENABLED:
-        logout_user()
     from flask import session as _session
+    logout_user()
     _session.clear()
-    return redirect(url_for('login'))
+    response = redirect(url_for('login'))
+    response.delete_cookie('remember_token')
+    return response
 
 
 # ── Protected dashboard ───────────────────────────────────────────────────────

@@ -65,6 +65,11 @@ REDIS_URL = os.environ.get('REDIS_URL', 'memory://')
 # ── CSRF ──────────────────────────────────────────────────────────────────────
 WTF_CSRF_ENABLED    = IS_PRODUCTION   # disabled in dev for easier API testing
 WTF_CSRF_TIME_LIMIT = 3600            # 1 hour
+# Trust the custom domain and the Railway fallback domain for CSRF checks
+_raw_trusted = os.environ.get('WTF_CSRF_TRUSTED_ORIGINS', '')
+WTF_CSRF_TRUSTED_ORIGINS = [o.strip() for o in _raw_trusted.split(',') if o.strip()] or [
+    'https://app.tryaiden.ai',
+]
 
 # ── Admin seed credentials (used only by 'flask create-admin' CLI command) ────
 # After the admin user is in the database these env vars are no longer needed for login.

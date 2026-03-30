@@ -80,7 +80,8 @@ from extensions import db, migrate, login_manager, bcrypt, limiter, csrf
 
 # These always init regardless of DB — login_manager must be attached before
 # any request hits a @login_required route, even in local dev without a DB.
-app.config['WTF_CSRF_ENABLED'] = config.WTF_CSRF_ENABLED
+app.config['WTF_CSRF_ENABLED']          = config.WTF_CSRF_ENABLED
+app.config['WTF_CSRF_TRUSTED_ORIGINS']  = config.WTF_CSRF_TRUSTED_ORIGINS
 bcrypt.init_app(app)
 limiter.init_app(app)
 csrf.init_app(app)

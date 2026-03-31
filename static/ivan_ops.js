@@ -821,14 +821,18 @@ var IvanOpsApp = (function () {
     }
 
     function _htmlMaintModal() {
-        var opts = _equipment.filter(function (e) { return e.active; }).map(function (e) {
-            return '<option value="' + e.id + '">' + _esc(e.unitNumber) + (e.nickname ? ' · ' + _esc(e.nickname) : '') + ' (' + e.type + ')</option>';
-        }).join('');
+        var activeEquip = _equipment.filter(function (e) { return e.active; });
+        var opts = activeEquip.length
+            ? activeEquip.map(function (e) {
+                return '<option value="' + e.id + '">' + _esc(e.unitNumber) + (e.nickname ? ' · ' + _esc(e.nickname) : '') + ' (' + e.type + ')</option>';
+              }).join('')
+            : '<option value="">— Add equipment first —</option>';
         return '<div id="ivan-maint-modal" class="ivan-overlay">'
             + '<div class="ivan-modal">'
             + '<div class="ivan-modal-hdr"><span id="ivan-maint-modal-title">Add Maintenance Task</span>'
             + '<button class="ivan-mclose" data-action="close-maint-modal">✕</button></div>'
             + '<div class="ivan-modal-body">'
+            + (activeEquip.length === 0 ? '<div style="background:#2d1a0e;color:#f59e0b;border:1px solid #92400e;border-radius:6px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.875rem">⚠ No equipment found. <strong>Add equipment first</strong> before adding maintenance tasks.</div>' : '')
             + '<div class="ivan-frow">'
             + _fgroup('Equipment *', '<select name="equipmentId" id="ivan-maint-equip-sel" class="ivan-input">' + opts + '</select>')
             + _fgroup('Priority *',  '<select name="priority" class="ivan-input"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select>')
@@ -909,14 +913,18 @@ var IvanOpsApp = (function () {
     }
 
     function _htmlInvoiceModal() {
-        var opts = _equipment.filter(function (e) { return e.active; }).map(function (e) {
-            return '<option value="' + e.id + '">' + _esc(e.unitNumber) + (e.nickname ? ' · ' + _esc(e.nickname) : '') + ' (' + e.type + ')</option>';
-        }).join('');
+        var activeEquip = _equipment.filter(function (e) { return e.active; });
+        var opts = activeEquip.length
+            ? activeEquip.map(function (e) {
+                return '<option value="' + e.id + '">' + _esc(e.unitNumber) + (e.nickname ? ' · ' + _esc(e.nickname) : '') + ' (' + e.type + ')</option>';
+              }).join('')
+            : '<option value="">— Add equipment first —</option>';
         return '<div id="ivan-inv-modal" class="ivan-overlay">'
             + '<div class="ivan-modal">'
             + '<div class="ivan-modal-hdr"><span>Upload Invoice</span>'
             + '<button class="ivan-mclose" data-action="close-inv-modal">✕</button></div>'
             + '<div class="ivan-modal-body">'
+            + (activeEquip.length === 0 ? '<div style="background:#2d1a0e;color:#f59e0b;border:1px solid #92400e;border-radius:6px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.875rem">⚠ No equipment found. <strong>Add equipment first</strong> before adding invoices.</div>' : '')
             + '<div class="ivan-phase-note">Phase 1 — Enter invoice details manually. File name is stored for reference. Automatic text extraction from PDF/image is planned for Phase 2.</div>'
             + '<div class="ivan-frow">'
             + _fgroup('Equipment *',    '<select name="equipmentId" id="ivan-inv-equip-sel" class="ivan-input">' + opts + '</select>')
@@ -959,7 +967,12 @@ var IvanOpsApp = (function () {
     function _clearModal(id) {
         var el = document.getElementById(id);
         if (!el) return;
-        el.querySelectorAll('input:not([type="checkbox"]):not([type="file"]),select,textarea').forEach(function (f) { f.value = ''; });
+        el.querySelectorAll('input:not([type="checkbox"]):not([type="file"]),textarea').forEach(function (f) { f.value = ''; });
+        el.querySelectorAll('select').forEach(function (sel) {
+            // Restore each option to its defaultSelected state so priority/status
+            // defaults ('medium', 'upcoming') are preserved after clearing.
+            Array.prototype.forEach.call(sel.options, function (o) { o.selected = o.defaultSelected; });
+        });
         el.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = cb.defaultChecked; });
     }
     function _readForm(id) {

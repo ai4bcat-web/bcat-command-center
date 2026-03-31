@@ -82,9 +82,23 @@ var IvanOpsApp = (function () {
 
     // ── API helpers ───────────────────────────────────────────────────────
     function _api(method, path, body) {
-        var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+        var headers = { 'Content-Type': 'application/json' };
+        // Include CSRF token for all mutating requests (required in production)
+        var csrfMeta  = document.querySelector('meta[name="csrf-token"]');
+        var csrfInput = document.querySelector('input[name="csrf_token"]');
+        var csrfToken = (csrfMeta && csrfMeta.content) || (csrfInput && csrfInput.value) || '';
+        if (csrfToken) headers['X-CSRFToken'] = csrfToken;
+        var opts = { method: method, headers: headers };
         if (body) opts.body = JSON.stringify(body);
-        return fetch(path, opts).then(function(r) { return r.json(); });
+        return fetch(path, opts).then(function(r) {
+            if (!r.ok) {
+                return r.text().then(function(t) {
+                    console.error('[ivan_ops] API error', method, path, r.status, t);
+                    throw new Error('Server error ' + r.status + ': ' + t.slice(0, 200));
+                });
+            }
+            return r.json();
+        });
     }
 
     // ── Map API task → internal format (old field names for rendering compat) ──
@@ -1019,15 +1033,24 @@ var IvanOpsApp = (function () {
                     });
                     Promise.all(deletePromises).then(function() {
                         return _api('PUT', '/api/ivan/equipment/' + eid, data);
-                    }).then(function() {
+                    }).then(function(resp) {
+                        console.log('[ivan_ops] edit-equip response:', resp);
                         _closeModal('ivan-equip-modal');
                         _loadAll(function() { _renderEquipmentTab(); });
+                    }).catch(function(err) {
+                        console.error('[ivan_ops] edit-equip failed:', err);
+                        alert('Failed to update equipment: ' + err.message);
                     });
                 } else {
                     data.id = 'eq-' + _genId();
-                    _api('POST', '/api/ivan/equipment', data).then(function() {
+                    console.log('[ivan_ops] save-equip POST payload:', data);
+                    _api('POST', '/api/ivan/equipment', data).then(function(resp) {
+                        console.log('[ivan_ops] save-equip response:', resp);
                         _closeModal('ivan-equip-modal');
                         _loadAll(function() { _renderEquipmentTab(); });
+                    }).catch(function(err) {
+                        console.error('[ivan_ops] save-equip failed:', err);
+                        alert('Failed to save equipment: ' + err.message);
                     });
                 }
                 return;

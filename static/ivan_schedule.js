@@ -7,17 +7,20 @@
  *
  * Features:
  *  - Multi-week stacked view (default 4 weeks)
- *  - Driver dropdown populated from Ivan Drivers localStorage
+ *  - Driver dropdown from Ivan Drivers localStorage + Unassigned option
  *  - ZIP → City/State auto-fill via zippopotam.us
- *  - Appointment status per assignment (NEED | REQUESTED | APPOINTED)
+ *  - Per-leg PU/DE appointment status (NEED | REQUESTED | APPOINTED)
+ *  - Pickup/delivery location names
+ *  - Driver starting location per day (overrides base for deadhead calc)
  *  - Driver color coding, load continuity chips, deadhead, manual DONE toggle
+ *  - 24-hour (military) time throughout
  */
 var IvanScheduleApp = (function () {
     'use strict';
 
     var NUM_WEEKS = 4;  // number of weeks to display simultaneously
 
-    var BASE = [43.1006, -87.8751]; // Pleasant Prairie, WI
+    var BASE = [43.1006, -87.8751]; // Pleasant Prairie, WI (default start)
 
     var COORDS = {
         'chicago il':          [41.8781, -87.6298],
@@ -74,6 +77,8 @@ var IvanScheduleApp = (function () {
         { b: '#fb923c', bg: '#1e0a02', t: '#fdba74' },
         { b: '#84cc16', bg: '#0d1a02', t: '#bef264' },
     ];
+    // Neutral gray for Unassigned
+    var UNASSIGNED_COLOR = { b: '#475569', bg: '#0c1118', t: '#94a3b8' };
 
     // 10 load chip colors
     var LOAD_COLORS = [
@@ -85,6 +90,7 @@ var IvanScheduleApp = (function () {
     var _cid       = null;
     var _viewStart = null;   // Monday of first visible week
     var _weekData  = {};     // weekStart → { assignments: [], loads: [] }
+    var _missingDel = {};    // loadId → true for loads with pickup but no delivery
 
     // ── Fetch / CSRF ──────────────────────────────────────────────────────────
     function _csrf() {
@@ -97,7 +103,6 @@ var IvanScheduleApp = (function () {
         return fetch(path, opts).then(function (r) {
             var ct = r.headers.get('content-type') || '';
             if (!r.ok) {
-                // Try JSON error body; fall back to status text if response is HTML
                 if (ct.indexOf('application/json') >= 0) {
                     return r.json().then(function (e) { throw new Error(e.error || r.statusText); });
                 }
@@ -154,11 +159,22 @@ var IvanScheduleApp = (function () {
         return 2*R*Math.asin(Math.sqrt(s*s+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*t*t));
     }
     function _mi(km) { return Math.round(km*0.621371*1.25); }
+
+    /**
+     * Compute deadhead for each assignment in a driver's sorted day.
+     * sorted[0].driverStartCity/State overrides BASE as the starting point.
+     */
     function _driverDH(sorted) {
+        // Determine starting location: use driver start from first assignment if set
+        var startLoc = BASE;
+        if (sorted.length && sorted[0].driverStartCity) {
+            var sl = _ll(sorted[0].driverStartCity, sorted[0].driverStartState);
+            if (sl) startLoc = sl;
+        }
         return sorted.map(function(a,i) {
             var orig=_ll(a.originCity,a.originState), dest=_ll(a.destCity,a.destState);
             var toDH=0, retDH=0;
-            if (i===0) { if(orig) toDH=_mi(_hav(BASE,orig)); }
+            if (i===0) { if(orig) toDH=_mi(_hav(startLoc,orig)); }
             else { var pd=_ll(sorted[i-1].destCity,sorted[i-1].destState); if(pd&&orig) toDH=_mi(_hav(pd,orig)); }
             if (i===sorted.length-1 && dest) retDH=_mi(_hav(dest,BASE));
             return {toDH:toDH,retDH:retDH};
@@ -173,7 +189,10 @@ var IvanScheduleApp = (function () {
     function _hash(str) {
         var h=0; for(var i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))&0xffff; return h;
     }
-    function _dc(name)  { return DRIVER_COLORS[_hash((name||'').toLowerCase()) % DRIVER_COLORS.length]; }
+    function _dc(name) {
+        if (!name || !name.trim()) return UNASSIGNED_COLOR;
+        return DRIVER_COLORS[_hash(name.toLowerCase()) % DRIVER_COLORS.length];
+    }
     function _lc(id)    { return LOAD_COLORS[_hash(id||'') % LOAD_COLORS.length]; }
 
     // ── Data accessors ────────────────────────────────────────────────────────
@@ -214,7 +233,30 @@ var IvanScheduleApp = (function () {
         }).length + 1;
     }
 
-    // ── ZIP lookup (zippopotam.us — swap URL for own service as needed) ───────
+    /**
+     * Scan all loaded assignments and find loads that have a PICKUP
+     * but no DELIVERY or PICKUP_AND_DELIVER leg yet.
+     * Results stored in _missingDel = { loadId: true }.
+     */
+    function _computeMissingDel() {
+        var all = _allAsgns();
+        var hasPickup = {}, hasDelivery = {};
+        all.forEach(function(a) {
+            if (!a.loadId) return;
+            if (a.actionType === 'PICKUP') {
+                hasPickup[a.loadId] = a; // store assignment for prefill
+            }
+            if (a.actionType === 'DELIVERY' || a.actionType === 'PICKUP_AND_DELIVER') {
+                hasDelivery[a.loadId] = true;
+            }
+        });
+        _missingDel = {};
+        Object.keys(hasPickup).forEach(function(lid) {
+            if (!hasDelivery[lid]) _missingDel[lid] = true;
+        });
+    }
+
+    // ── ZIP lookup (zippopotam.us) ────────────────────────────────────────────
     function _lookupZip(zipInput) {
         var zip = (zipInput.value||'').trim();
         if (!/^\d{5}$/.test(zip)) return;
@@ -269,6 +311,7 @@ var IvanScheduleApp = (function () {
     // ── Render ────────────────────────────────────────────────────────────────
     function _render() {
         var el = document.getElementById(_cid); if (!el) return;
+        _computeMissingDel();
         var today   = _iso(new Date());
         var drvs    = _drivers();
         var curWeek = _mondayOf(new Date());
@@ -322,7 +365,7 @@ var IvanScheduleApp = (function () {
         var hdr  = _fmtColHdr(day);
         var drvs = [];
         dayA.forEach(function(a){
-            var d=(a.driverName||'Unassigned').trim();
+            var d=(a.driverName||'').trim()||'Unassigned';
             if(drvs.indexOf(d)<0) drvs.push(d);
         });
         drvs.sort();
@@ -339,8 +382,9 @@ var IvanScheduleApp = (function () {
             h += '<div class="sc-empty-col">No assignments</div>';
         } else {
             drvs.forEach(function(drv){
-                var da = dayA.filter(function(a){ return (a.driverName||'Unassigned').trim()===drv; })
-                             .sort(function(a,b){ return a.sequenceNumber-b.sequenceNumber; });
+                var da = dayA.filter(function(a){
+                    return ((a.driverName||'').trim()||'Unassigned')===drv;
+                }).sort(function(a,b){ return a.sequenceNumber-b.sequenceNumber; });
                 h += _drvSection(drv, day, da);
             });
         }
@@ -352,12 +396,25 @@ var IvanScheduleApp = (function () {
     }
 
     function _drvSection(drv, day, sorted) {
-        var dc = _dc(drv), dh = _driverDH(sorted);
+        var isUnassigned = drv === 'Unassigned';
+        var dc  = isUnassigned ? UNASSIGNED_COLOR : _dc(drv);
+        var dh  = _driverDH(sorted);
         var retDH = dh.length ? dh[dh.length-1].retDH : 0;
+
+        // Show driver start location if set on first assignment
+        var startLoc = '';
+        if (sorted.length && sorted[0].driverStartCity) {
+            startLoc = sorted[0].driverStartCity +
+                       (sorted[0].driverStartState ? ', '+sorted[0].driverStartState : '');
+        }
+
         var h = '<div class="sc-drv-sec" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+'">';
         h += '<div class="sc-drv-hdr">';
+        h += '<div class="sc-drv-hdr-left">';
         h += '<span class="sc-drv-name">'+_e(drv)+'</span>';
-        h += '<button class="sc-drv-add" data-action="show-add" data-day="'+day+'" data-driver="'+_e(drv)+'" title="Add move for this driver">+</button>';
+        if (startLoc) h += '<span class="sc-drv-start">\u25ba '+_e(startLoc)+'</span>';
+        h += '</div>';
+        h += '<button class="sc-drv-add" data-action="show-add" data-day="'+day+'" data-driver="'+_e(isUnassigned?'':drv)+'" title="Add move for this driver">+</button>';
         h += '</div>';
         sorted.forEach(function(a,i){ h += _cardHTML(a, dh[i].toDH, dc); });
         if (retDH>0) h += '<div class="sc-ret-bar">\u21a9 Base: '+retDH+' mi</div>';
@@ -371,12 +428,18 @@ var IvanScheduleApp = (function () {
         var lc     = a.loadId ? _lc(a.loadId) : null;
         var label  = ACTION_LABEL[a.actionType]||a.actionType||'?';
         var actCss = ACTION_CSS[a.actionType]||'sc-badge-other';
-        var apSt   = a.apptStatus||'NEED';
-        var apCss  = APPT_CSS[apSt]||'sc-apst-need';
+        var puSt   = a.puApptStatus||'NEED';
+        var deSt   = a.deApptStatus||'NEED';
+        var puCss  = APPT_CSS[puSt]||'sc-apst-need';
+        var deCss  = APPT_CSS[deSt]||'sc-apst-need';
         var orig   = [a.originCity,a.originState].filter(Boolean).join(', ');
         var dest   = [a.destCity,a.destState].filter(Boolean).join(', ');
+        var puLoc  = a.puLocationName||'';
+        var deLoc  = a.deLocationName||'';
+        // Missing delivery: PICKUP leg with no delivery leg on same load
+        var isMissingDel = a.actionType === 'PICKUP' && a.loadId && _missingDel[a.loadId];
 
-        var cls = 'sc-card'+(isDone?' sc-card-done':'');
+        var cls = 'sc-card'+(isDone?' sc-card-done':'')+(isMissingDel?' sc-card-missing-del':'');
         var h = '<div class="'+cls+'" data-id="'+a.id+'" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+'">';
 
         // ── View ──
@@ -391,35 +454,62 @@ var IvanScheduleApp = (function () {
         h += '<button class="sc-btn-icon sc-btn-del" data-action="del-asgn" data-id="'+a.id+'" title="Delete">\u00d7</button>';
         h += '</span>';
         h += '</div>'; // sc-card-top
-        if (orig||dest) h += '<div class="sc-route">'+_e(orig)+(orig&&dest?' \u2192 ':'')+_e(dest)+'</div>';
-        var pts=[]; if(a.puAppt) pts.push('PU '+a.puAppt); if(a.deAppt) pts.push('DE '+a.deAppt);
+
+        // Route + location names
+        if (puLoc || orig) {
+            h += '<div class="sc-route sc-route-pu">';
+            if (puLoc) h += '<span class="sc-loc-name">'+_e(puLoc)+'</span> ';
+            if (orig)  h += '<span class="sc-loc-city">'+_e(orig)+'</span>';
+            h += '</div>';
+        }
+        if (deLoc || dest) {
+            h += '<div class="sc-route sc-route-de">';
+            h += '\u2192 ';
+            if (deLoc) h += '<span class="sc-loc-name">'+_e(deLoc)+'</span> ';
+            if (dest)  h += '<span class="sc-loc-city">'+_e(dest)+'</span>';
+            h += '</div>';
+        }
+
+        // Appt times + per-leg status badges
         h += '<div class="sc-appt-row">';
-        if (pts.length) h += '<span class="sc-appts">'+_e(pts.join(' \u00b7 '))+'</span>';
-        h += '<span class="sc-apst '+apCss+'">'+_e(apSt)+'</span>';
+        if (a.puAppt) {
+            h += '<span class="sc-appts">PU '+_e(a.puAppt)+'</span>';
+            h += '<span class="sc-apst '+puCss+'">'+_e(puSt)+'</span>';
+        }
+        if (a.deAppt) {
+            h += '<span class="sc-appts">DE '+_e(a.deAppt)+'</span>';
+            h += '<span class="sc-apst '+deCss+'">'+_e(deSt)+'</span>';
+        }
+        if (!a.puAppt && !a.deAppt) {
+            // Show at least the combined status if no times
+            h += '<span class="sc-apst '+puCss+'">PU: '+_e(puSt)+'</span>';
+            h += '<span class="sc-apst '+deCss+'">DE: '+_e(deSt)+'</span>';
+        }
         h += '</div>';
-        // Checkboxes + DONE toggle
-        var CHKS=[
-            ['dispatched','D','Dispatched'],['pickedUp','P','Picked Up'],['delivered','V','Delivered'],
-            ['paperworkReceived','R','Paperwork Rcvd'],['paperworkReviewed','W','Paperwork Rev\'d'],
-            ['invoicingReady','I','Invoicing Ready'],
-        ];
+
+        // DONE toggle only (no workflow checkboxes)
         h += '<div class="sc-chks">';
-        CHKS.forEach(function(c){
-            h += '<label class="sc-chk-lbl" title="'+c[2]+'">' +
-                 '<input type="checkbox" class="sc-chk"'+(a[c[0]]?' checked':'')+
-                 ' data-action="toggle-chk" data-id="'+a.id+'" data-field="'+c[0]+'">'+
-                 '<span>'+c[1]+'</span></label>';
-        });
         h += '<span class="sc-chks-sep"></span>';
         h += '<label class="sc-chk-lbl sc-done-lbl" title="Mark complete">';
         h += '<input type="checkbox" class="sc-chk sc-done-chk"'+(isDone?' checked':'')+
              ' data-action="toggle-chk" data-id="'+a.id+'" data-field="isComplete">';
         h += '<span>'+(isDone?'\u2713 DONE':'DONE')+'</span></label>';
         h += '</div>';
+
         if (a.notes) {
             var n=a.notes; h += '<div class="sc-notes">'+_e(n.length>55?n.substring(0,55)+'\u2026':n)+'</div>';
         }
         h += '</div>'; // sc-card-view
+
+        // ── Missing delivery warning + quick action ──
+        if (isMissingDel) {
+            h += '<div class="sc-missing-del-bar">';
+            h += '<span class="sc-missing-del-badge">\u26a0 DELIVERY NOT ADDED</span>';
+            h += '<button class="sc-add-del-btn" data-action="show-delivery-form" data-id="'+a.id+'">\u271a Add Delivery</button>';
+            h += '</div>';
+            h += _deliveryFormHTML(a);
+        }
+
         h += _editFormHTML(a);
         h += '</div>'; // sc-card
         return h;
@@ -427,8 +517,9 @@ var IvanScheduleApp = (function () {
 
     // ── Edit form (inside card, hidden by default) ────────────────────────────
     function _editFormHTML(a) {
-        var load = a.load||{};
-        var apSt = a.apptStatus||'NEED';
+        var load  = a.load||{};
+        var puSt  = a.puApptStatus||'NEED';
+        var deSt  = a.deApptStatus||'NEED';
         var h = '<div class="sc-card-edit" style="display:none" data-edit-for="'+a.id+'">';
         h += '<div class="sc-ef-grid">';
         // Row: PRO # | TMS ID
@@ -436,13 +527,21 @@ var IvanScheduleApp = (function () {
         h += '<label class="sc-ef-lbl">PRO #<input class="sc-inp" name="pro" value="'+_e(load.alexeiId||'')+'" placeholder="PRO-10421"></label>';
         h += '<label class="sc-ef-lbl">TMS ID<input class="sc-inp" name="tms" value="'+_e(load.tmsId||'')+'" placeholder="TMS-8801"></label>';
         h += '</div>';
-        // Row: Pickup Number (full width)
+        // Row: Pickup Number
         h += '<label class="sc-ef-lbl">Pickup Number<input class="sc-inp" name="punum" value="'+_e(load.puNumber||'')+'" placeholder="PU-4421"></label>';
         // Row: Action | Driver
         h += '<div class="sc-ef-row2">';
         h += '<label class="sc-ef-lbl">Action'+_actSel('action',a.actionType||'PICKUP')+'</label>';
-        h += '<label class="sc-ef-lbl">Driver<input class="sc-inp" name="driver" value="'+_e(a.driverName||'')+'" list="sc-drvs-dl" placeholder="Alexei"></label>';
+        h += '<label class="sc-ef-lbl">Driver'+_driverSel('driver',a.driverName||'')+'</label>';
         h += '</div>';
+        // Row: Driver start ZIP | City | ST
+        h += '<div class="sc-ef-row-zip">';
+        h += '<label class="sc-ef-lbl sc-ef-zip">Start ZIP<input class="sc-inp" name="startzip" placeholder="60601" maxlength="5"></label>';
+        h += '<label class="sc-ef-lbl sc-ef-city">Start City<input class="sc-inp" name="startcity" value="'+_e(a.driverStartCity||'')+'" placeholder="Chicago"></label>';
+        h += '<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="startst" value="'+_e(a.driverStartState||'')+'" maxlength="2" placeholder="IL"></label>';
+        h += '</div>';
+        // Row: PU Location Name (full width)
+        h += '<label class="sc-ef-lbl">PU Location Name<input class="sc-inp" name="puloc" value="'+_e(a.puLocationName||'')+'" placeholder="Walmart DC #6045"></label>';
         // Row: PU ZIP | From City | ST
         h += '<div class="sc-ef-row-zip">';
         h += '<label class="sc-ef-lbl sc-ef-zip">PU ZIP<input class="sc-inp" name="puzip" placeholder="60601" maxlength="5"></label>';
@@ -450,6 +549,8 @@ var IvanScheduleApp = (function () {
         h += '<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="origst" value="'+_e(a.originState||'')+'" maxlength="2" placeholder="IL"></label>';
         h += '</div>';
         h += '<span class="sc-zip-warn sc-zip-warn-pu" style="display:none"></span>';
+        // Row: DE Location Name (full width)
+        h += '<label class="sc-ef-lbl">DE Location Name<input class="sc-inp" name="deloc" value="'+_e(a.deLocationName||'')+'" placeholder="Target RDC"></label>';
         // Row: DE ZIP | To City | ST
         h += '<div class="sc-ef-row-zip">';
         h += '<label class="sc-ef-lbl sc-ef-zip">DE ZIP<input class="sc-inp" name="dezip" placeholder="53202" maxlength="5"></label>';
@@ -457,11 +558,15 @@ var IvanScheduleApp = (function () {
         h += '<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="dstst" value="'+_e(a.destState||'')+'" maxlength="2" placeholder="WI"></label>';
         h += '</div>';
         h += '<span class="sc-zip-warn sc-zip-warn-de" style="display:none"></span>';
-        // Row: PU Appt | DE Appt | Appt Status
-        h += '<div class="sc-ef-row3">';
-        h += '<label class="sc-ef-lbl">PU Appt<input class="sc-inp" type="time" name="puappt" value="'+_e(a.puAppt||'')+'"></label>';
-        h += '<label class="sc-ef-lbl">DE Appt<input class="sc-inp" type="time" name="deappt" value="'+_e(a.deAppt||'')+'"></label>';
-        h += '<label class="sc-ef-lbl">Appt Status'+_apptSel('apptStatus',apSt)+'</label>';
+        // Row: PU Appt | PU Status
+        h += '<div class="sc-ef-row2">';
+        h += '<label class="sc-ef-lbl">PU Appt (HH:MM)<input class="sc-inp" type="time" name="puappt" value="'+_e(a.puAppt||'')+'"></label>';
+        h += '<label class="sc-ef-lbl">PU Appt Status'+_apptSel('puApptStatus',puSt)+'</label>';
+        h += '</div>';
+        // Row: DE Appt | DE Status
+        h += '<div class="sc-ef-row2">';
+        h += '<label class="sc-ef-lbl">DE Appt (HH:MM)<input class="sc-inp" type="time" name="deappt" value="'+_e(a.deAppt||'')+'"></label>';
+        h += '<label class="sc-ef-lbl">DE Appt Status'+_apptSel('deApptStatus',deSt)+'</label>';
         h += '</div>';
         // Row: Seq | Notes
         h += '<div class="sc-ef-row2">';
@@ -477,6 +582,64 @@ var IvanScheduleApp = (function () {
         return h;
     }
 
+    // ── Delivery creation form (embedded in pickup card) ─────────────────────
+    function _deliveryFormHTML(a) {
+        var load = a.load || {};
+        // Origin of delivery leg = where pickup ended (pickup's destCity)
+        var delOrigCity  = a.destCity   || '';
+        var delOrigState = a.destState  || '';
+        // Destination of delivery = master load's de_city/de_state
+        var delDstCity   = load.deCity  || '';
+        var delDstState  = load.deState || '';
+        // Origin location name for delivery = where pickup was staged/dropped
+        var delOrigLoc   = a.deLocationName || '';
+
+        var routeInfo = '';
+        var from = [delOrigCity, delOrigState].filter(Boolean).join(', ');
+        var to   = [delDstCity,  delDstState].filter(Boolean).join(', ');
+        if (from || to) routeInfo = (from||'?') + ' \u2192 ' + (to||'?');
+
+        var h = '<div class="sc-delivery-form" data-del-for="'+a.id+'" style="display:none">';
+        h += '<div class="sc-del-form-hdr">';
+        h += '<span class="sc-del-form-title">\u26a1 Add Delivery Leg</span>';
+        if (load.alexeiId) h += '<span class="sc-chip" style="--lc:'+_lc(a.loadId||'')+'">'+_e(load.alexeiId)+'</span>';
+        h += '</div>';
+
+        if (routeInfo) h += '<div class="sc-del-route-info">'+_e(routeInfo)+'</div>';
+
+        // Hidden carry-over fields
+        h += '<input type="hidden" name="del-loadid" value="'+_e(a.loadId||'')+'">';
+        h += '<input type="hidden" name="del-origcity" value="'+_e(delOrigCity)+'">';
+        h += '<input type="hidden" name="del-origst" value="'+_e(delOrigState)+'">';
+        h += '<input type="hidden" name="del-dstcity" value="'+_e(delDstCity)+'">';
+        h += '<input type="hidden" name="del-dstst" value="'+_e(delDstState)+'">';
+        h += '<input type="hidden" name="del-origloc" value="'+_e(delOrigLoc)+'">';
+
+        h += '<div class="sc-ef-grid">';
+        // Date (required) | Driver
+        h += '<div class="sc-ef-row2">';
+        h += '<label class="sc-ef-lbl sc-del-required-lbl">Delivery Date \u2736<input class="sc-inp" type="date" name="del-date" required></label>';
+        h += '<label class="sc-ef-lbl">Driver'+_driverSel('del-driver','')+'</label>';
+        h += '</div>';
+        // DE Appt | DE Status
+        h += '<div class="sc-ef-row2">';
+        h += '<label class="sc-ef-lbl">DE Appt (HH:MM)<input class="sc-inp" type="time" name="del-deappt"></label>';
+        h += '<label class="sc-ef-lbl">DE Appt Status'+_apptSel('del-deApptStatus','NEED')+'</label>';
+        h += '</div>';
+        // DE Location Name
+        h += '<label class="sc-ef-lbl">DE Location Name<input class="sc-inp" name="del-deloc" placeholder="Final delivery location\u2026"></label>';
+        // Notes (carry over from pickup)
+        h += '<label class="sc-ef-lbl">Notes<input class="sc-inp" name="del-notes" value="'+_e(a.notes||'')+'" placeholder="Notes\u2026"></label>';
+        h += '</div>'; // sc-ef-grid
+
+        h += '<div class="sc-ef-btns">';
+        h += '<button class="sc-btn-cancel" data-action="cancel-delivery-form" data-id="'+a.id+'">Cancel</button>';
+        h += '<button class="sc-btn-save sc-btn-del-save" data-action="save-delivery" data-id="'+a.id+'">\u26a1 Save Delivery</button>';
+        h += '</div>';
+        h += '</div>'; // sc-delivery-form
+        return h;
+    }
+
     // ── Add form (per day column, hidden by default) ──────────────────────────
     function _addFormHTML(day) {
         var h = '<div class="sc-add-form" data-add-day="'+day+'" style="display:none">';
@@ -489,24 +652,34 @@ var IvanScheduleApp = (function () {
         h += '<label class="sc-ef-lbl">Pickup Number<input class="sc-inp" name="punum" placeholder="PU-4421"></label>';
         h += '<div class="sc-ef-row2">';
         h += '<label class="sc-ef-lbl">Action'+_actSel('action','PICKUP')+'</label>';
-        h += '<label class="sc-ef-lbl">Driver<input class="sc-inp" name="driver" list="sc-drvs-dl" placeholder="Alexei"></label>';
+        h += '<label class="sc-ef-lbl">Driver'+_driverSel('driver','')+'</label>';
         h += '</div>';
+        h += '<div class="sc-ef-row-zip">';
+        h += '<label class="sc-ef-lbl sc-ef-zip">Start ZIP<input class="sc-inp" name="startzip" placeholder="60601" maxlength="5"></label>';
+        h += '<label class="sc-ef-lbl sc-ef-city">Start City<input class="sc-inp" name="startcity" placeholder="Chicago"></label>';
+        h += '<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="startst" maxlength="2" placeholder="IL"></label>';
+        h += '</div>';
+        h += '<label class="sc-ef-lbl">PU Location Name<input class="sc-inp" name="puloc" placeholder="Walmart DC #6045"></label>';
         h += '<div class="sc-ef-row-zip">';
         h += '<label class="sc-ef-lbl sc-ef-zip">PU ZIP<input class="sc-inp" name="puzip" placeholder="60601" maxlength="5"></label>';
         h += '<label class="sc-ef-lbl sc-ef-city">From City<input class="sc-inp" name="origcity" placeholder="Chicago"></label>';
         h += '<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="origst" maxlength="2" placeholder="IL"></label>';
         h += '</div>';
         h += '<span class="sc-zip-warn sc-zip-warn-pu" style="display:none"></span>';
+        h += '<label class="sc-ef-lbl">DE Location Name<input class="sc-inp" name="deloc" placeholder="Target RDC"></label>';
         h += '<div class="sc-ef-row-zip">';
         h += '<label class="sc-ef-lbl sc-ef-zip">DE ZIP<input class="sc-inp" name="dezip" placeholder="53202" maxlength="5"></label>';
         h += '<label class="sc-ef-lbl sc-ef-city">To City<input class="sc-inp" name="dstcity" placeholder="Milwaukee"></label>';
         h += '<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="dstst" maxlength="2" placeholder="WI"></label>';
         h += '</div>';
         h += '<span class="sc-zip-warn sc-zip-warn-de" style="display:none"></span>';
-        h += '<div class="sc-ef-row3">';
-        h += '<label class="sc-ef-lbl">PU Appt<input class="sc-inp" type="time" name="puappt"></label>';
-        h += '<label class="sc-ef-lbl">DE Appt<input class="sc-inp" type="time" name="deappt"></label>';
-        h += '<label class="sc-ef-lbl">Appt Status'+_apptSel('apptStatus','NEED')+'</label>';
+        h += '<div class="sc-ef-row2">';
+        h += '<label class="sc-ef-lbl">PU Appt (HH:MM)<input class="sc-inp" type="time" name="puappt"></label>';
+        h += '<label class="sc-ef-lbl">PU Appt Status'+_apptSel('puApptStatus','NEED')+'</label>';
+        h += '</div>';
+        h += '<div class="sc-ef-row2">';
+        h += '<label class="sc-ef-lbl">DE Appt (HH:MM)<input class="sc-inp" type="time" name="deappt"></label>';
+        h += '<label class="sc-ef-lbl">DE Appt Status'+_apptSel('deApptStatus','NEED')+'</label>';
         h += '</div>';
         h += '<div class="sc-ef-row2">';
         h += '<label class="sc-ef-lbl">Seq<input class="sc-inp" type="number" name="seq" value="1" min="1" max="20"></label>';
@@ -533,6 +706,15 @@ var IvanScheduleApp = (function () {
         opts.forEach(function(o){ s+='<option value="'+o[0]+'"'+(val===o[0]?' selected':'')+'>'+_e(o[1])+'</option>'; });
         return s+'</select>';
     }
+    function _driverSel(name, val) {
+        var drvs = _drivers();
+        var s = '<select class="sc-inp" name="'+name+'">';
+        s += '<option value=""'+(val===''?' selected':'')+'>— Unassigned —</option>';
+        drvs.forEach(function(d){
+            s += '<option value="'+_e(d)+'"'+(val===d?' selected':'')+'>'+_e(d)+'</option>';
+        });
+        return s+'</select>';
+    }
 
     // ── Event binding ─────────────────────────────────────────────────────────
     function _bind(el) {
@@ -546,9 +728,12 @@ var IvanScheduleApp = (function () {
                 case 'cancel-edit': _cancelEdit(b.dataset.id);               break;
                 case 'save-edit':   _saveEdit(b.dataset.id);                 break;
                 case 'del-asgn':    _delAsgn(b.dataset.id);                  break;
-                case 'show-add':    _showAdd(b.dataset.day, b.dataset.driver||''); break;
-                case 'cancel-add':  _cancelAdd(b.dataset.day);               break;
-                case 'save-new':    _saveNew(b.dataset.day);                 break;
+                case 'show-add':              _showAdd(b.dataset.day, b.dataset.driver||''); break;
+                case 'cancel-add':            _cancelAdd(b.dataset.day);               break;
+                case 'save-new':              _saveNew(b.dataset.day);                 break;
+                case 'show-delivery-form':    _showDeliveryForm(b.dataset.id);         break;
+                case 'cancel-delivery-form':  _cancelDeliveryForm(b.dataset.id);       break;
+                case 'save-delivery':         _saveDelivery(b.dataset.id);             break;
             }
         });
         el.addEventListener('change', function(e) {
@@ -557,8 +742,43 @@ var IvanScheduleApp = (function () {
         });
         el.addEventListener('input', function(e) {
             var t = e.target;
-            if ((t.name === 'puzip' || t.name === 'dezip') && t.value.length === 5) _lookupZip(t);
+            if ((t.name === 'puzip' || t.name === 'dezip' || t.name === 'startzip') && t.value.length === 5) {
+                _lookupZipGeneric(t);
+            }
         });
+    }
+
+    // Generic ZIP lookup — determines target fields by input name
+    function _lookupZipGeneric(zipInput) {
+        var zip = (zipInput.value||'').trim();
+        if (!/^\d{5}$/.test(zip)) return;
+        var form = zipInput.closest('.sc-card-edit, .sc-add-form');
+        if (!form) return;
+        var cityName, stName, warnClass;
+        if (zipInput.name === 'puzip') {
+            cityName = 'origcity'; stName = 'origst'; warnClass = 'sc-zip-warn-pu';
+        } else if (zipInput.name === 'dezip') {
+            cityName = 'dstcity';  stName = 'dstst';  warnClass = 'sc-zip-warn-de';
+        } else {
+            cityName = 'startcity'; stName = 'startst'; warnClass = null;
+        }
+        var cityI = form.querySelector('[name="'+cityName+'"]');
+        var stI   = form.querySelector('[name="'+stName+'"]');
+        var warn  = warnClass ? form.querySelector('.'+warnClass) : null;
+        if (warn) { warn.textContent = ''; warn.style.display = 'none'; }
+        fetch('https://api.zippopotam.us/us/'+zip)
+            .then(function(r){ return r.ok ? r.json() : null; })
+            .then(function(data){
+                if (!data||!data.places||!data.places.length) {
+                    if (warn) { warn.textContent = 'ZIP not found'; warn.style.display = ''; }
+                    return;
+                }
+                if (cityI) cityI.value = data.places[0]['place name'];
+                if (stI)   stI.value   = data.places[0]['state abbreviation'];
+            })
+            .catch(function(){
+                if (warn) { warn.textContent = 'Lookup failed'; warn.style.display = ''; }
+            });
     }
 
     // ── Card edit toggle ──────────────────────────────────────────────────────
@@ -587,18 +807,23 @@ var IvanScheduleApp = (function () {
         var loadBody = {
             alexeiId: g('pro'), tmsId: g('tms'), puNumber: g('punum'),
             puCity: g('origcity'), puState: g('origst').toUpperCase(),
-            deCity: g('dstcity'), deState: g('dstst').toUpperCase(),
+            deCity: g('dstcity'),  deState: g('dstst').toUpperCase(),
         };
         var asgnBody = {
-            date:           a.date,
-            weekStart:      _mondayOf(new Date(a.date+'T00:00:00')),
-            driverName:     g('driver') || a.driverName,
-            sequenceNumber: parseInt(g('seq') || a.sequenceNumber, 10),
-            actionType:     g('action') || a.actionType,
-            originCity:     g('origcity'), originState: g('origst').toUpperCase(),
-            destCity:       g('dstcity'),  destState:   g('dstst').toUpperCase(),
-            puAppt:         g('puappt'),   deAppt:      g('deappt'),
-            notes:          g('notes'),    apptStatus:  g('apptStatus'),
+            date:             a.date,
+            weekStart:        _mondayOf(new Date(a.date+'T00:00:00')),
+            driverName:       g('driver'),
+            sequenceNumber:   parseInt(g('seq') || a.sequenceNumber, 10),
+            actionType:       g('action') || a.actionType,
+            originCity:       g('origcity'), originState: g('origst').toUpperCase(),
+            destCity:         g('dstcity'),  destState:   g('dstst').toUpperCase(),
+            puAppt:           g('puappt'),   deAppt:      g('deappt'),
+            puLocationName:   g('puloc'),    deLocationName: g('deloc'),
+            driverStartCity:  g('startcity'),
+            driverStartState: g('startst').toUpperCase(),
+            puApptStatus:     g('puApptStatus'),
+            deApptStatus:     g('deApptStatus'),
+            notes:            g('notes'),
         };
 
         var loadP;
@@ -621,10 +846,13 @@ var IvanScheduleApp = (function () {
     function _showAdd(day, driver) {
         document.querySelectorAll('.sc-add-form').forEach(function(f){ if(f.dataset.addDay!==day) f.style.display='none'; });
         var form = document.querySelector('.sc-add-form[data-add-day="'+day+'"]'); if (!form) return;
-        form.querySelectorAll('input,select').forEach(function(i){ i.value=''; });
+        form.querySelectorAll('input').forEach(function(i){ i.value=''; });
         form.querySelector('[name="action"]').value = 'PICKUP';
-        form.querySelector('[name="apptStatus"]').value = 'NEED';
-        if (driver) { var di = form.querySelector('[name="driver"]'); if (di) di.value = driver; }
+        form.querySelector('[name="puApptStatus"]').value = 'NEED';
+        form.querySelector('[name="deApptStatus"]').value = 'NEED';
+        // Set driver select
+        var drvSel = form.querySelector('[name="driver"]');
+        if (drvSel) drvSel.value = driver || '';
         var seqI = form.querySelector('[name="seq"]');
         if (seqI) seqI.value = _nextSeq(day, driver);
         form.style.display = 'block';
@@ -649,15 +877,20 @@ var IvanScheduleApp = (function () {
             deCity: dstcity,  deState: g('dstst').toUpperCase(),
         };
         var asgnBody = {
-            date:           day,
-            weekStart:      _mondayOf(new Date(day+'T00:00:00')),
-            driverName:     g('driver'),
-            sequenceNumber: parseInt(g('seq')||'1', 10),
-            actionType:     g('action')||'PICKUP',
-            originCity:     origcity, originState: g('origst').toUpperCase(),
-            destCity:       dstcity,  destState:   g('dstst').toUpperCase(),
-            puAppt:         g('puappt'),  deAppt:  g('deappt'),
-            notes:          g('notes'),   apptStatus: g('apptStatus')||'NEED',
+            date:             day,
+            weekStart:        _mondayOf(new Date(day+'T00:00:00')),
+            driverName:       g('driver'),
+            sequenceNumber:   parseInt(g('seq')||'1', 10),
+            actionType:       g('action')||'PICKUP',
+            originCity:       origcity, originState: g('origst').toUpperCase(),
+            destCity:         dstcity,  destState:   g('dstst').toUpperCase(),
+            puAppt:           g('puappt'),  deAppt:       g('deappt'),
+            puLocationName:   g('puloc'),   deLocationName: g('deloc'),
+            driverStartCity:  g('startcity'),
+            driverStartState: g('startst').toUpperCase(),
+            puApptStatus:     g('puApptStatus')||'NEED',
+            deApptStatus:     g('deApptStatus')||'NEED',
+            notes:            g('notes'),
         };
 
         var matchedLoad = proNum ? _allLoads().find(function(l){ return l.alexeiId===proNum; }) : null;
@@ -675,6 +908,78 @@ var IvanScheduleApp = (function () {
              .catch(function(err){ alert('Save failed: '+err.message); if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';} });
     }
 
+    // ── Delivery form show/hide ───────────────────────────────────────────────
+    function _showDeliveryForm(id) {
+        // Close any other open delivery forms
+        document.querySelectorAll('.sc-delivery-form').forEach(function(f){
+            if (f.dataset.delFor !== id) f.style.display = 'none';
+        });
+        var form = document.querySelector('.sc-delivery-form[data-del-for="'+id+'"]');
+        if (!form) return;
+        form.style.display = 'block';
+        setTimeout(function(){
+            form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            var di = form.querySelector('[name="del-date"]'); if (di) di.focus();
+        }, 60);
+    }
+    function _cancelDeliveryForm(id) {
+        var form = document.querySelector('.sc-delivery-form[data-del-for="'+id+'"]');
+        if (form) form.style.display = 'none';
+    }
+
+    // ── Save delivery leg ─────────────────────────────────────────────────────
+    function _saveDelivery(id) {
+        var form = document.querySelector('.sc-delivery-form[data-del-for="'+id+'"]');
+        if (!form) return;
+        var g = function(n) { var i = form.querySelector('[name="'+n+'"]'); return i ? i.value.trim() : ''; };
+
+        var dateVal = g('del-date');
+        if (!dateVal) {
+            var di = form.querySelector('[name="del-date"]');
+            if (di) { di.focus(); di.classList.add('sc-inp-error'); }
+            return;
+        }
+
+        var saveBtn = form.querySelector('[data-action="save-delivery"]');
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
+
+        var pickupA = _allAsgns().find(function(x) { return x.id === id; });
+        if (!pickupA) return;
+
+        var weekStart = _mondayOf(new Date(dateVal + 'T00:00:00'));
+
+        var asgnBody = {
+            date:             dateVal,
+            weekStart:        weekStart,
+            loadId:           g('del-loadid') || pickupA.loadId || null,
+            driverName:       g('del-driver'),
+            sequenceNumber:   1,
+            actionType:       'DELIVERY',
+            // Origin of delivery = where pickup ended up (staging/yard)
+            originCity:       g('del-origcity'),
+            originState:      g('del-origst').toUpperCase(),
+            // Destination = master load's delivery destination
+            destCity:         g('del-dstcity'),
+            destState:        g('del-dstst').toUpperCase(),
+            // Location names: pickup's dest location → delivery origin; user enters dest
+            puLocationName:   g('del-origloc'),
+            deLocationName:   g('del-deloc'),
+            // Appt: PU time blank for delivery leg; DE time from user
+            puAppt:           '',
+            deAppt:           g('del-deappt'),
+            puApptStatus:     'NEED',
+            deApptStatus:     g('del-deApptStatus') || 'NEED',
+            notes:            g('del-notes'),
+        };
+
+        _api('POST', '/api/ivan/schedule/assignments', asgnBody)
+            .then(function() { _reload(); })
+            .catch(function(err) {
+                alert('Save failed: ' + err.message);
+                if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '\u26a1 Save Delivery'; }
+            });
+    }
+
     // ── Delete ────────────────────────────────────────────────────────────────
     function _delAsgn(id) {
         if (!confirm('Delete this assignment?')) return;
@@ -683,7 +988,7 @@ var IvanScheduleApp = (function () {
             .catch(function(err){ alert('Delete failed: '+err.message); });
     }
 
-    // ── Checkbox toggle (optimistic) ──────────────────────────────────────────
+    // ── DONE toggle (optimistic) ──────────────────────────────────────────────
     function _toggleChk(id, field, checked) {
         var a = _allAsgns().find(function(x){ return x.id===id; }); if (!a) return;
         var prev = a[field]; a[field] = checked;

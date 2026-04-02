@@ -138,16 +138,22 @@ if config.DATABASE_URL:
                     return
                 cols = {c['name'] for c in insp.get_columns('ivan_schedule_assignments')}
                 with db.engine.begin() as conn:
-                    if 'is_complete' not in cols:
-                        conn.execute(_st(
-                            'ALTER TABLE ivan_schedule_assignments'
-                            ' ADD COLUMN is_complete BOOLEAN DEFAULT FALSE'
-                        ))
-                    if 'appt_status' not in cols:
-                        conn.execute(_st(
-                            "ALTER TABLE ivan_schedule_assignments"
-                            " ADD COLUMN appt_status VARCHAR(20) DEFAULT 'NEED'"
-                        ))
+                    _adds = [
+                        ('is_complete',       'BOOLEAN DEFAULT FALSE'),
+                        ('appt_status',       "VARCHAR(20) DEFAULT 'NEED'"),
+                        ('pu_location_name',  "VARCHAR(200) DEFAULT ''"),
+                        ('de_location_name',  "VARCHAR(200) DEFAULT ''"),
+                        ('driver_start_city', "VARCHAR(100) DEFAULT ''"),
+                        ('driver_start_state',"VARCHAR(10)  DEFAULT ''"),
+                        ('pu_appt_status',    "VARCHAR(20) DEFAULT 'NEED'"),
+                        ('de_appt_status',    "VARCHAR(20) DEFAULT 'NEED'"),
+                        ('completed_at',      'TIMESTAMP NULL'),
+                    ]
+                    for col, defn in _adds:
+                        if col not in cols:
+                            conn.execute(_st(
+                                f'ALTER TABLE ivan_schedule_assignments ADD COLUMN {col} {defn}'
+                            ))
         except Exception as _me:
             _log.warning('Schedule column auto-migrate skipped: %s', _me)
 
@@ -1305,27 +1311,26 @@ def ivan_assignment_create():
     from extensions import db as _db
     d = request.get_json() or {}
     a = IvanScheduleAssignment(
-        id              = d.get('id') or ('asgn-' + _uuid.uuid4().hex[:8]),
-        load_id         = d.get('loadId') or None,
-        week_start      = d['weekStart'],
-        date            = d['date'],
-        driver_name     = d.get('driverName', ''),
-        sequence_number = int(d.get('sequenceNumber', 1)),
-        action_type     = d.get('actionType', 'PICKUP'),
-        origin_city     = d.get('originCity', ''),
-        origin_state    = (d.get('originState') or '').upper(),
-        dest_city       = d.get('destCity', ''),
-        dest_state      = (d.get('destState') or '').upper(),
-        pu_appt         = d.get('puAppt', ''),
-        de_appt         = d.get('deAppt', ''),
-        notes           = d.get('notes', ''),
-        dispatched          = bool(d.get('dispatched', False)),
-        picked_up           = bool(d.get('pickedUp', False)),
-        delivered           = bool(d.get('delivered', False)),
-        paperwork_received  = bool(d.get('paperworkReceived', False)),
-        paperwork_reviewed  = bool(d.get('paperworkReviewed', False)),
-        invoicing_ready     = bool(d.get('invoicingReady', False)),
-        appt_status         = d.get('apptStatus', 'NEED'),
+        id               = d.get('id') or ('asgn-' + _uuid.uuid4().hex[:8]),
+        load_id          = d.get('loadId') or None,
+        week_start       = d['weekStart'],
+        date             = d['date'],
+        driver_name      = d.get('driverName', ''),
+        sequence_number  = int(d.get('sequenceNumber', 1)),
+        action_type      = d.get('actionType', 'PICKUP'),
+        origin_city      = d.get('originCity', ''),
+        origin_state     = (d.get('originState') or '').upper(),
+        dest_city        = d.get('destCity', ''),
+        dest_state       = (d.get('destState') or '').upper(),
+        pu_appt          = d.get('puAppt', ''),
+        de_appt          = d.get('deAppt', ''),
+        pu_location_name = d.get('puLocationName', ''),
+        de_location_name = d.get('deLocationName', ''),
+        driver_start_city  = d.get('driverStartCity', ''),
+        driver_start_state = (d.get('driverStartState') or '').upper(),
+        pu_appt_status   = d.get('puApptStatus', 'NEED'),
+        de_appt_status   = d.get('deApptStatus', 'NEED'),
+        notes            = d.get('notes', ''),
     )
     _db.session.add(a)
     _db.session.commit()
@@ -1351,15 +1356,20 @@ def ivan_assignment_update(aid):
     if 'destState'       in d: a.dest_state       = (d['destState'] or '').upper()
     if 'puAppt'          in d: a.pu_appt          = d['puAppt']
     if 'deAppt'          in d: a.de_appt          = d['deAppt']
-    if 'notes'           in d: a.notes            = d['notes']
-    if 'dispatched'         in d: a.dispatched         = bool(d['dispatched'])
-    if 'pickedUp'           in d: a.picked_up          = bool(d['pickedUp'])
-    if 'delivered'          in d: a.delivered          = bool(d['delivered'])
-    if 'paperworkReceived'  in d: a.paperwork_received = bool(d['paperworkReceived'])
-    if 'paperworkReviewed'  in d: a.paperwork_reviewed = bool(d['paperworkReviewed'])
-    if 'invoicingReady'     in d: a.invoicing_ready    = bool(d['invoicingReady'])
-    if 'apptStatus'         in d: a.appt_status        = d['apptStatus']
-    if 'isComplete'         in d: a.is_complete        = bool(d['isComplete'])
+    if 'notes'             in d: a.notes              = d['notes']
+    if 'puLocationName'    in d: a.pu_location_name   = d['puLocationName']
+    if 'deLocationName'    in d: a.de_location_name   = d['deLocationName']
+    if 'driverStartCity'   in d: a.driver_start_city  = d['driverStartCity']
+    if 'driverStartState'  in d: a.driver_start_state = (d['driverStartState'] or '').upper()
+    if 'puApptStatus'      in d: a.pu_appt_status     = d['puApptStatus']
+    if 'deApptStatus'      in d: a.de_appt_status     = d['deApptStatus']
+    if 'isComplete' in d:
+        a.is_complete = bool(d['isComplete'])
+        if a.is_complete and not a.completed_at:
+            from datetime import datetime as _dt
+            a.completed_at = _dt.utcnow()
+        elif not a.is_complete:
+            a.completed_at = None
     _db.session.commit()
     return jsonify(a.to_dict())
 

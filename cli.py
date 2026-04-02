@@ -207,21 +207,26 @@ def seed_schedule():
 
     db.create_all()
 
-    # Add is_complete column if missing (idempotent on PostgreSQL and SQLite)
     from sqlalchemy import inspect as _inspect, text as _text
-    _cols = [c['name'] for c in _inspect(db.engine).get_columns('ivan_schedule_assignments')]
-    if 'is_complete' not in _cols:
-        db.session.execute(_text(
-            'ALTER TABLE ivan_schedule_assignments ADD COLUMN is_complete BOOLEAN DEFAULT FALSE'
-        ))
-        db.session.commit()
-        click.echo('  ↳ Added is_complete column to ivan_schedule_assignments.')
-    if 'appt_status' not in _cols:
-        db.session.execute(_text(
-            "ALTER TABLE ivan_schedule_assignments ADD COLUMN appt_status VARCHAR(20) DEFAULT 'NEED'"
-        ))
-        db.session.commit()
-        click.echo('  ↳ Added appt_status column to ivan_schedule_assignments.')
+    _cols = {c['name'] for c in _inspect(db.engine).get_columns('ivan_schedule_assignments')}
+    _new_cols = [
+        ('is_complete',       'BOOLEAN DEFAULT FALSE'),
+        ('appt_status',       "VARCHAR(20) DEFAULT 'NEED'"),
+        ('pu_location_name',  "VARCHAR(200) DEFAULT ''"),
+        ('de_location_name',  "VARCHAR(200) DEFAULT ''"),
+        ('driver_start_city', "VARCHAR(100) DEFAULT ''"),
+        ('driver_start_state',"VARCHAR(10)  DEFAULT ''"),
+        ('pu_appt_status',    "VARCHAR(20) DEFAULT 'NEED'"),
+        ('de_appt_status',    "VARCHAR(20) DEFAULT 'NEED'"),
+        ('completed_at',      'TIMESTAMP NULL'),
+    ]
+    for _col, _defn in _new_cols:
+        if _col not in _cols:
+            db.session.execute(_text(
+                f'ALTER TABLE ivan_schedule_assignments ADD COLUMN {_col} {_defn}'
+            ))
+            db.session.commit()
+            click.echo(f'  ↳ Added {_col} column to ivan_schedule_assignments.')
 
     today  = date.today()
     monday = today - timedelta(days=today.weekday())
@@ -245,17 +250,18 @@ def seed_schedule():
     def asgn(aid, ld, date_str, driver, seq, action,
              orig_city, orig_st, dest_city, dest_st,
              pu_appt='', de_appt='', notes='',
-             disp=False, pu=False, de=False, pw_r=False, pw_w=False, inv=False,
-             complete=False, appt='NEED'):
+             complete=False, pu_appt_st='NEED', de_appt_st='NEED',
+             pu_loc='', de_loc='', start_city='', start_st=''):
         return IvanScheduleAssignment(
             id=aid, load_id=ld.id, week_start=week, date=date_str,
             driver_name=driver, sequence_number=seq, action_type=action,
             origin_city=orig_city, origin_state=orig_st,
             dest_city=dest_city,  dest_state=dest_st,
             pu_appt=pu_appt, de_appt=de_appt, notes=notes,
-            dispatched=disp, picked_up=pu, delivered=de,
-            paperwork_received=pw_r, paperwork_reviewed=pw_w, invoicing_ready=inv,
-            appt_status=appt, is_complete=complete)
+            pu_appt_status=pu_appt_st, de_appt_status=de_appt_st,
+            pu_location_name=pu_loc, de_location_name=de_loc,
+            driver_start_city=start_city, driver_start_state=start_st,
+            is_complete=complete)
 
     # ── Loads ──────────────────────────────────────────────────────────────────
     # L1: Chicago → Milwaukee  (Alexei, Mon, P&D — FULLY COMPLETE)
@@ -286,24 +292,26 @@ def seed_schedule():
         # Alexei seq 1 — P&D L1 (complete, appointed)
         asgn('asgn-seed-001', L1, day(0), 'Alexei', 1, 'PICKUP_AND_DELIVER',
              'Chicago','IL','Milwaukee','WI','07:00','11:30','Reefer 34°F',
-             disp=True, pu=True, de=True, pw_r=True, pw_w=True, inv=True,
-             complete=True, appt='APPOINTED'),
+             complete=True, pu_appt_st='APPOINTED', de_appt_st='APPOINTED',
+             pu_loc='Chicago Terminal', de_loc='Milwaukee Warehouse'),
         # Alexei seq 2 — PICKUP L2, staged overnight (appt requested)
         asgn('asgn-seed-002', L2, day(0), 'Alexei', 2, 'PICKUP',
              'Kenosha','WI','Pleasant Prairie','WI','13:00','',
-             'Staging at yard overnight', disp=True, pu=True, appt='REQUESTED'),
+             'Staging at yard overnight', pu_appt_st='REQUESTED'),
         # Ivan seq 1 — P&D L3, dispatched only (appt needed)
         asgn('asgn-seed-003', L3, day(0), 'Ivan', 1, 'PICKUP_AND_DELIVER',
              'Chicago','IL','Detroit','MI','09:00','17:00',
-             'Team driver preferred', disp=True, appt='NEED'),
+             'Team driver preferred'),
 
         # TUESDAY
         # Ivan seq 1 — DELIVERY L2 (appointed)
         asgn('asgn-seed-004', L2, day(1), 'Ivan', 1, 'DELIVERY',
-             'Pleasant Prairie','WI','Rockford','IL','','09:00', appt='APPOINTED'),
+             'Pleasant Prairie','WI','Rockford','IL','','09:00',
+             de_appt_st='APPOINTED', start_city='Pleasant Prairie', start_st='WI'),
         # Alexei seq 1 — P&D L4 (appointed)
         asgn('asgn-seed-005', L4, day(1), 'Alexei', 1, 'PICKUP_AND_DELIVER',
-             'Waukegan','IL','Milwaukee','WI','06:30','10:00', disp=True, appt='APPOINTED'),
+             'Waukegan','IL','Milwaukee','WI','06:30','10:00',
+             pu_appt_st='APPOINTED', de_appt_st='APPOINTED'),
         # Alexei seq 2 — REPOSITION back to Chicago
         asgn('asgn-seed-006', L5, day(1), 'Alexei', 2, 'REPOSITION',
              'Milwaukee','WI','Chicago','IL'),
@@ -311,7 +319,8 @@ def seed_schedule():
         # WEDNESDAY
         # Alexei seq 1 — PICKUP L6 (appt requested)
         asgn('asgn-seed-007', L6, day(2), 'Alexei', 1, 'PICKUP',
-             'Joliet','IL','Indianapolis','IN','08:00','14:00', appt='REQUESTED'),
+             'Joliet','IL','Indianapolis','IN','08:00','14:00',
+             pu_appt_st='REQUESTED'),
     ]
 
     for a in assignments:

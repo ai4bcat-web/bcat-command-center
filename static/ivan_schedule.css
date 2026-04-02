@@ -118,10 +118,17 @@
     background: rgba(0,0,0,0.35);
     border-bottom: 1px solid var(--db, #334155);
 }
+.sc-drv-hdr-left {
+    display: flex; flex-direction: column; gap: 1px; min-width: 0;
+}
 .sc-drv-name {
     font-size: 10px; font-weight: 800;
     color: var(--dt, #94a3b8);
     text-transform: uppercase; letter-spacing: 0.07em;
+}
+.sc-drv-start {
+    font-size: 9px; color: #475569; font-style: italic;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sc-drv-add {
     background: transparent;
@@ -131,7 +138,7 @@
     border-radius: 3px; cursor: pointer;
     font-size: 14px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
-    padding: 0; line-height: 1;
+    padding: 0; line-height: 1; flex-shrink: 0;
 }
 .sc-drv-add:hover { background: var(--db, #334155); }
 
@@ -152,6 +159,63 @@
 .sc-card:last-of-type { border-bottom: none; }
 .sc-card-done { background: #031a0e !important; border-bottom-color: #14532d !important; }
 .sc-card-done:hover { background: #042214 !important; }
+
+/* ── Missing delivery state ─────────────────────────────────────── */
+.sc-card-missing-del {
+    border-left: 3px solid #f59e0b !important;
+    background: rgba(245,158,11,0.03) !important;
+}
+.sc-card-missing-del:hover { background: rgba(245,158,11,0.06) !important; }
+.sc-missing-del-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 8px;
+    background: rgba(120, 53, 15, 0.35);
+    border-top: 1px solid rgba(245,158,11,0.3);
+    border-bottom: 1px solid rgba(245,158,11,0.15);
+}
+.sc-missing-del-badge {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
+    color: #fbbf24;
+}
+.sc-add-del-btn {
+    font-size: 10px; font-weight: 700;
+    background: #1c0d00; border: 1px solid #f59e0b; color: #fbbf24;
+    padding: 3px 9px; border-radius: 4px; cursor: pointer;
+    white-space: nowrap; transition: background 0.1s;
+}
+.sc-add-del-btn:hover { background: #292000; border-color: #fbbf24; color: #fff; }
+
+/* ── Delivery creation form ─────────────────────────────────────── */
+.sc-delivery-form {
+    border-top: 2px solid #f59e0b;
+    padding: 8px;
+    background: #100900;
+}
+.sc-del-form-hdr {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px;
+}
+.sc-del-form-title {
+    font-size: 10px; font-weight: 800; color: #fbbf24;
+    text-transform: uppercase; letter-spacing: 0.07em;
+}
+.sc-del-route-info {
+    font-size: 10px; color: #64748b; font-family: monospace;
+    margin-bottom: 7px; padding: 4px 6px;
+    background: rgba(0,0,0,0.3); border-radius: 3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sc-del-required-lbl { color: #fbbf24 !important; }
+.sc-inp-error { border-color: #ef4444 !important; animation: sc-shake 0.2s; }
+@keyframes sc-shake {
+    0%,100%{ transform: translateX(0); }
+    25%     { transform: translateX(-3px); }
+    75%     { transform: translateX(3px); }
+}
+.sc-btn-del-save {
+    background: #78350f; border-color: #f59e0b; color: #fef3c7;
+}
+.sc-btn-del-save:hover { background: #92400e; }
 
 /* ── Card view ──────────────────────────────────────────────────── */
 .sc-card-view { padding: 5px 8px 4px; }
@@ -204,13 +268,19 @@
 
 /* ── Route ──────────────────────────────────────────────────────── */
 .sc-route {
-    font-size: 11px; color: #cbd5e1; margin-bottom: 2px;
+    font-size: 11px; color: #cbd5e1; margin-bottom: 1px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.sc-route-de { color: #94a3b8; }
+.sc-loc-name {
+    color: #60a5fa; font-weight: 600; font-size: 10px;
+}
+.sc-loc-city { font-size: 11px; }
 
-/* ── Appt row (time + status badge) ────────────────────────────── */
+/* ── Appt row (time + status badges) ───────────────────────────── */
 .sc-appt-row {
-    display: flex; align-items: center; gap: 5px; margin-bottom: 2px;
+    display: flex; align-items: center; gap: 4px; margin-bottom: 2px;
+    flex-wrap: wrap;
 }
 .sc-appts {
     font-size: 10px; color: #64748b; font-family: monospace; flex-shrink: 0;

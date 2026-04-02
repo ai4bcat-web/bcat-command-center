@@ -408,17 +408,27 @@ class IvanScheduleAssignment(db.Model):
     pu_appt          = db.Column(db.String(20),  default='')
     de_appt          = db.Column(db.String(20),  default='')
     notes            = db.Column(db.Text,        default='')
-    # Workflow checkboxes
+    # Workflow checkboxes — kept for DB compatibility; no longer used in UI
     dispatched           = db.Column(db.Boolean, default=False)
     picked_up            = db.Column(db.Boolean, default=False)
     delivered            = db.Column(db.Boolean, default=False)
     paperwork_received   = db.Column(db.Boolean, default=False)
     paperwork_reviewed   = db.Column(db.Boolean, default=False)
     invoicing_ready      = db.Column(db.Boolean, default=False)
-    # Appointment status for this leg (NEED | REQUESTED | APPOINTED)
+    # Legacy single appt_status — kept for DB compat; superseded by pu/de split
     appt_status          = db.Column(db.String(20), default='NEED')
+    # Pickup / delivery location names (e.g. "Walmart DC #6045")
+    pu_location_name     = db.Column(db.String(200), default='')
+    de_location_name     = db.Column(db.String(200), default='')
+    # Driver's starting city/state for this day (overrides BASE for deadhead calc)
+    driver_start_city    = db.Column(db.String(100), default='')
+    driver_start_state   = db.Column(db.String(10),  default='')
+    # Per-leg appointment status (NEED | REQUESTED | APPOINTED)
+    pu_appt_status       = db.Column(db.String(20), default='NEED')
+    de_appt_status       = db.Column(db.String(20), default='NEED')
     # Manual completion flag — set explicitly by the dispatcher
-    is_complete          = db.Column(db.Boolean, default=False)
+    is_complete          = db.Column(db.Boolean,  default=False)
+    completed_at         = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -437,15 +447,15 @@ class IvanScheduleAssignment(db.Model):
             'destState':         self.dest_state        or '',
             'puAppt':            self.pu_appt           or '',
             'deAppt':            self.de_appt           or '',
+            'puLocationName':    self.pu_location_name  or '',
+            'deLocationName':    self.de_location_name  or '',
+            'driverStartCity':   self.driver_start_city or '',
+            'driverStartState':  self.driver_start_state or '',
+            'puApptStatus':      self.pu_appt_status    or 'NEED',
+            'deApptStatus':      self.de_appt_status    or 'NEED',
             'notes':             self.notes             or '',
-            'dispatched':        bool(self.dispatched),
-            'pickedUp':          bool(self.picked_up),
-            'delivered':         bool(self.delivered),
-            'paperworkReceived': bool(self.paperwork_received),
-            'paperworkReviewed': bool(self.paperwork_reviewed),
-            'invoicingReady':    bool(self.invoicing_ready),
-            'apptStatus':        self.appt_status or 'NEED',
             'isComplete':        bool(self.is_complete),
+            'completedAt':       self.completed_at.isoformat() if self.completed_at else '',
             'load':              self.load.to_dict() if self.load else None,
             'createdAt': self.created_at.isoformat() if self.created_at else '',
             'updatedAt': self.updated_at.isoformat() if self.updated_at else '',

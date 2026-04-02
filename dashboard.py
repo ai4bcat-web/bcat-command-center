@@ -119,12 +119,13 @@ if config.DATABASE_URL:
     migrate.init_app(app, db)
 
     # Register CLI commands
-    from cli import create_admin, seed_roles, create_user, list_users, reset_password
+    from cli import create_admin, seed_roles, create_user, list_users, reset_password, seed_schedule
     app.cli.add_command(create_admin)
     app.cli.add_command(seed_roles)
     app.cli.add_command(create_user)
     app.cli.add_command(list_users)
     app.cli.add_command(reset_password)
+    app.cli.add_command(seed_schedule)
 
 _DB_ENABLED = bool(config.DATABASE_URL)
 
@@ -1174,6 +1175,103 @@ def ivan_invoice_delete(iid):
     from extensions import db as _db
     inv = IvanInvoice.query.get_or_404(iid)
     _db.session.delete(inv)
+    _db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ── Ivan Cartage — Driver Schedule ────────────────────────────────────────────
+
+@app.route('/api/ivan/schedule', methods=['GET'])
+@login_required
+def ivan_schedule_list():
+    """Return all schedule entries for a given week.
+    Query param: weekStart=YYYY-MM-DD (Monday of the week)
+    """
+    from models import IvanScheduleEntry
+    week_start = request.args.get('weekStart', '')
+    if not week_start:
+        return jsonify([])
+    entries = (IvanScheduleEntry.query
+               .filter_by(week_start=week_start)
+               .order_by(IvanScheduleEntry.day_date, IvanScheduleEntry.row_order)
+               .all())
+    return jsonify([e.to_dict() for e in entries])
+
+
+@app.route('/api/ivan/schedule/entries', methods=['POST'])
+@login_required
+def ivan_schedule_create():
+    from models import IvanScheduleEntry
+    from extensions import db as _db
+    d = request.get_json()
+    e = IvanScheduleEntry(
+        id=d['id'], week_start=d['weekStart'], day_date=d['dayDate'],
+        row_order=d.get('rowOrder', 0),
+        alexei_id=d.get('alexeiId',''), tms_id=d.get('tmsId',''),
+        pu_number=d.get('puNumber',''), pu_appt=d.get('puAppt',''),
+        de_appt=d.get('deAppt',''), pu_city=d.get('puCity',''),
+        pu_state=d.get('puState','').upper(), de_city=d.get('deCity',''),
+        de_state=d.get('deState','').upper(), notes=d.get('notes',''),
+        status=d.get('status',''),
+        start_deadhead_miles=d.get('startDeadheadMiles',0) or 0,
+        between_deadhead_miles=d.get('betweenDeadheadMiles',0) or 0,
+        return_deadhead_miles=d.get('returnDeadheadMiles',0) or 0,
+        total_deadhead_miles=d.get('totalDeadheadMiles',0) or 0,
+    )
+    _db.session.add(e)
+    _db.session.commit()
+    return jsonify(e.to_dict()), 201
+
+
+@app.route('/api/ivan/schedule/entries/<eid>', methods=['PUT'])
+@login_required
+def ivan_schedule_update(eid):
+    from models import IvanScheduleEntry
+    from extensions import db as _db
+    e = IvanScheduleEntry.query.get_or_404(eid)
+    d = request.get_json()
+    if 'alexeiId'             in d: e.alexei_id              = d['alexeiId']
+    if 'tmsId'                in d: e.tms_id                 = d['tmsId']
+    if 'puNumber'             in d: e.pu_number              = d['puNumber']
+    if 'puAppt'               in d: e.pu_appt                = d['puAppt']
+    if 'deAppt'               in d: e.de_appt                = d['deAppt']
+    if 'puCity'               in d: e.pu_city                = d['puCity']
+    if 'puState'              in d: e.pu_state               = d['puState'].upper()
+    if 'deCity'               in d: e.de_city                = d['deCity']
+    if 'deState'              in d: e.de_state               = d['deState'].upper()
+    if 'notes'                in d: e.notes                  = d['notes']
+    if 'status'               in d: e.status                 = d['status']
+    if 'rowOrder'             in d: e.row_order              = d['rowOrder']
+    if 'startDeadheadMiles'   in d: e.start_deadhead_miles   = d['startDeadheadMiles'] or 0
+    if 'betweenDeadheadMiles' in d: e.between_deadhead_miles = d['betweenDeadheadMiles'] or 0
+    if 'returnDeadheadMiles'  in d: e.return_deadhead_miles  = d['returnDeadheadMiles'] or 0
+    if 'totalDeadheadMiles'   in d: e.total_deadhead_miles   = d['totalDeadheadMiles'] or 0
+    _db.session.commit()
+    return jsonify(e.to_dict())
+
+
+@app.route('/api/ivan/schedule/entries/<eid>', methods=['DELETE'])
+@login_required
+def ivan_schedule_delete(eid):
+    from models import IvanScheduleEntry
+    from extensions import db as _db
+    e = IvanScheduleEntry.query.get_or_404(eid)
+    _db.session.delete(e)
+    _db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/ivan/schedule/entries/reorder', methods=['POST'])
+@login_required
+def ivan_schedule_reorder():
+    """Accepts [{id, rowOrder}, ...] and bulk-updates row_order values."""
+    from models import IvanScheduleEntry
+    from extensions import db as _db
+    items = request.get_json() or []
+    for item in items:
+        e = IvanScheduleEntry.query.get(item['id'])
+        if e:
+            e.row_order = item['rowOrder']
     _db.session.commit()
     return jsonify({'ok': True})
 

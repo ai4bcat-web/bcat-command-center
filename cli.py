@@ -19,7 +19,7 @@ from models import User, Role, Permission
 COMPANIES = ['bcat', 'ivan', 'bestcare', 'amazon', 'aiden', 'agents']
 TABS = {
     'bcat':     ['finance', 'marketing', 'sales'],
-    'ivan':     ['finance', 'equipment', 'drivers'],
+    'ivan':     ['finance', 'equipment', 'drivers', 'dispatch'],
     'bestcare': ['finance', 'marketing', 'sales'],
 }
 
@@ -195,3 +195,75 @@ def reset_password(email, new_password):
     user.password_hash = bcrypt.generate_password_hash(new_password).decode('utf-8')
     db.session.commit()
     click.echo(f'Password updated for {email}')
+
+
+@click.command('seed-schedule')
+@with_appcontext
+def seed_schedule():
+    """Seed sample schedule data for the current week so the dispatch board renders immediately."""
+    from datetime import date, timedelta
+    from models import IvanScheduleEntry
+    from extensions import db as _db
+
+    # Find Monday of current week
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    week_str = monday.isoformat()
+
+    # Delete any existing seed data for this week to allow re-seeding
+    existing = IvanScheduleEntry.query.filter_by(week_start=week_str).all()
+    for e in existing:
+        _db.session.delete(e)
+    _db.session.commit()
+
+    def make(day_offset, row_order, entry_id, alexei_id, tms_id, pu_num,
+             pu_appt, de_appt, pu_city, pu_state, de_city, de_state,
+             notes, status, start_dh, between_dh, return_dh):
+        day = (monday + timedelta(days=day_offset)).isoformat()
+        return IvanScheduleEntry(
+            id=entry_id, week_start=week_str, day_date=day, row_order=row_order,
+            alexei_id=alexei_id, tms_id=tms_id, pu_number=pu_num,
+            pu_appt=pu_appt, de_appt=de_appt,
+            pu_city=pu_city, pu_state=pu_state,
+            de_city=de_city, de_state=de_state,
+            notes=notes, status=status,
+            start_deadhead_miles=start_dh,
+            between_deadhead_miles=between_dh,
+            return_deadhead_miles=return_dh,
+            total_deadhead_miles=start_dh + return_dh,
+        )
+
+    entries = [
+        # Monday — 3 loads
+        make(0,0,'seed-mon-1','PRO-10421','TMS-8801','PU-4421','07:00','11:30',
+             'Chicago','IL','Racine','WI','Reefer — keep at 34°F','delivered',47,0,25),
+        make(0,1,'seed-mon-2','PRO-10422','TMS-8802','PU-4422','13:00','17:00',
+             'Kenosha','WI','Milwaukee','WI','','dispatched',18,0,22),
+        make(0,2,'seed-mon-3','PRO-10423','TMS-8803','PU-4423','19:00','23:00',
+             'Waukegan','IL','Joliet','IL','Drop and hook','pending',15,0,72),
+
+        # Tuesday — 2 loads
+        make(1,0,'seed-tue-1','PRO-10431','TMS-8811','PU-4431','06:30','10:00',
+             'Chicago Heights','IL','Rockford','IL','','dispatched',55,0,105),
+        make(1,1,'seed-tue-2','PRO-10432','TMS-8812','PU-4432','14:00','19:00',
+             'Elgin','IL','Gary','IN','Flatbed — secure properly','pending',90,0,85),
+
+        # Wednesday — 2 loads
+        make(2,0,'seed-wed-1','PRO-10441','TMS-8821','PU-4441','08:00','13:00',
+             'Joliet','IL','Indianapolis','IN','','pending',78,0,180),
+        make(2,1,'seed-wed-2','PRO-10442','TMS-8822','PU-4442','15:00','20:00',
+             'Aurora','IL','Champaign','IL','Liftgate required','pending',62,0,148),
+
+        # Thursday — 1 load
+        make(3,0,'seed-thu-1','PRO-10451','TMS-8831','PU-4451','07:00','12:00',
+             'Milwaukee','WI','Detroit','MI','','pending',22,0,290),
+
+        # Friday — 1 load
+        make(4,0,'seed-fri-1','PRO-10461','TMS-8841','PU-4461','09:00','14:00',
+             'Chicago','IL','St Louis','MO','','pending',47,0,310),
+    ]
+
+    for e in entries:
+        _db.session.add(e)
+    _db.session.commit()
+    click.echo(f'Seeded {len(entries)} schedule entries for week of {week_str}.')

@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="/static/sales.css">
     <link rel="stylesheet" href="/static/aiden.css">
     <link rel="stylesheet" href="/static/ivan_ops.css">
+    <link rel="stylesheet" href="/static/ivan_schedule.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -39,6 +40,7 @@
         <button class="cc-dept-tab active" onclick="openDept(this,'finance')">Finance</button>
         <button class="cc-dept-tab" onclick="openDept(this,'marketing')">Marketing</button>
         <button class="cc-dept-tab" onclick="openDept(this,'sales')">Sales</button>
+        <button class="cc-dept-tab" id="dept-tab-dispatch" onclick="openDept(this,'dispatch')" style="display:none">Dispatch</button>
     </div>
 
     <!-- ── Company Panels ───────────────────────────────────────────────── -->
@@ -66,6 +68,9 @@
         </div>
         <div id="ivan-sales" class="cc-dept-panel" data-dept="sales">
             <div id="ivan-drivers-content"></div>
+        </div>
+        <div id="ivan-dispatch" class="cc-dept-panel" data-dept="dispatch">
+            <div id="ivan-schedule-content"></div>
         </div>
     </div>
 
@@ -101,5 +106,6 @@
     <script src="/static/sales.js"></script>
     <script src="/static/aiden.js"></script>
     <script src="/static/ivan_ops.js"></script>
+    <script src="/static/ivan_schedule.js"></script>
 </body>
 </html>

@@ -288,6 +288,64 @@ def upsert_amazon_trips(trips: list) -> int:
     return count
 
 
+class IvanScheduleEntry(db.Model):
+    """
+    One dispatched load on one day in the weekly driver schedule board.
+    week_start is always a Monday (YYYY-MM-DD).
+    row_order controls display order within the day (0-based).
+    Deadhead miles are calculated client-side and stored here for persistence.
+    """
+    __tablename__ = 'ivan_schedule_entries'
+
+    id                     = db.Column(db.String(50),  primary_key=True)
+    week_start             = db.Column(db.String(10),  nullable=False, index=True)  # YYYY-MM-DD Monday
+    day_date               = db.Column(db.String(10),  nullable=False, index=True)  # YYYY-MM-DD
+    row_order              = db.Column(db.Integer,     nullable=False, default=0)
+    alexei_id              = db.Column(db.String(100), default='')   # PRO #
+    tms_id                 = db.Column(db.String(100), default='')
+    pu_number              = db.Column(db.String(100), default='')
+    pu_appt                = db.Column(db.String(20),  default='')   # HH:MM
+    de_appt                = db.Column(db.String(20),  default='')   # HH:MM
+    pu_city                = db.Column(db.String(100), default='')
+    pu_state               = db.Column(db.String(10),  default='')
+    de_city                = db.Column(db.String(100), default='')
+    de_state               = db.Column(db.String(10),  default='')
+    notes                  = db.Column(db.Text,        default='')
+    status                 = db.Column(db.String(50),  default='')
+    # Deadhead breakdown (miles) — recalculated when row order or cities change
+    start_deadhead_miles   = db.Column(db.Float, default=0.0)   # base terminal → pu_city
+    between_deadhead_miles = db.Column(db.Float, default=0.0)   # prev de_city → pu_city
+    return_deadhead_miles  = db.Column(db.Float, default=0.0)   # de_city → base terminal (last row only)
+    total_deadhead_miles   = db.Column(db.Float, default=0.0)   # sum of all segments
+    created_at             = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at             = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id':                   self.id,
+            'weekStart':            self.week_start,
+            'dayDate':              self.day_date,
+            'rowOrder':             self.row_order,
+            'alexeiId':             self.alexei_id or '',
+            'tmsId':                self.tms_id or '',
+            'puNumber':             self.pu_number or '',
+            'puAppt':               self.pu_appt or '',
+            'deAppt':               self.de_appt or '',
+            'puCity':               self.pu_city or '',
+            'puState':              self.pu_state or '',
+            'deCity':               self.de_city or '',
+            'deState':              self.de_state or '',
+            'notes':                self.notes or '',
+            'status':               self.status or '',
+            'startDeadheadMiles':   self.start_deadhead_miles or 0,
+            'betweenDeadheadMiles': self.between_deadhead_miles or 0,
+            'returnDeadheadMiles':  self.return_deadhead_miles or 0,
+            'totalDeadheadMiles':   self.total_deadhead_miles or 0,
+            'createdAt':  self.created_at.isoformat() if self.created_at else '',
+            'updatedAt':  self.updated_at.isoformat() if self.updated_at else '',
+        }
+
+
 class RelaySession(db.Model):
     """Stores Amazon Relay browser cookies for headless session reuse on Railway."""
     __tablename__ = 'relay_sessions'

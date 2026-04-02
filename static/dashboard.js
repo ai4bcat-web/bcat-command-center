@@ -45,7 +45,7 @@ function _applyPermissions(perms) {
     // Per-company tab restrictions
     // Ivan uses dept ids 'marketing'/'sales' for what permissions call 'equipment'/'drivers'
     var PERM_TO_DEPT = {
-        ivan: { finance: 'finance', equipment: 'marketing', drivers: 'sales' }
+        ivan: { finance: 'finance', equipment: 'marketing', drivers: 'sales', dispatch: 'dispatch' }
     };
 
     var tabs = perms.tabs || {};
@@ -92,7 +92,7 @@ function _applyDeptTabRestrictions(tabs, permToDeptMap) {
 
 // Global mapping used by _applyDeptTabRestrictions when called from openCompany
 var PERM_TO_DEPT_MAP = {
-    ivan: { finance: 'finance', equipment: 'marketing', drivers: 'sales' }
+    ivan: { finance: 'finance', equipment: 'marketing', drivers: 'sales', dispatch: 'dispatch' }
 };
 
 // Show admin link if user is admin
@@ -1781,6 +1781,10 @@ function _onWorkspaceActivated(company, dept) {
         if (typeof IvanOpsApp !== 'undefined') IvanOpsApp.mountDrivers('ivan-drivers-content');
         return;
     }
+    if (company === 'ivan' && dept === 'dispatch') {
+        if (typeof IvanScheduleApp !== 'undefined') IvanScheduleApp.mountSchedule('ivan-schedule-content');
+        return;
+    }
 
     var key = company + ':' + dept;
     if (_initializedPanels[key]) return;
@@ -2056,6 +2060,10 @@ function _updateDeptTabLabels(companyId) {
     var salBtn = document.querySelector('.cc-dept-tab[onclick*="sales"]');
     if (mktBtn) mktBtn.textContent = labels.marketing;
     if (salBtn) salBtn.textContent = labels.sales;
+
+    // Dispatch tab: only visible when viewing Ivan Cartage
+    var dispatchBtn = document.getElementById('dept-tab-dispatch');
+    if (dispatchBtn) dispatchBtn.style.display = (companyId === 'ivan') ? '' : 'none';
 }
 
 function openCompany(btn, companyId) {

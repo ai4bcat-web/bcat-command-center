@@ -149,7 +149,7 @@ var IvanScheduleApp = (function () {
         var container = document.getElementById(_containerId);
         if (container) container.innerHTML = '<div class="sch-loading">Loading schedule…</div>';
         _api('GET', '/api/ivan/schedule?weekStart=' + weekMon).then(function (data) {
-            _entries = data.entries || [];
+            _entries = Array.isArray(data) ? data : (data.entries || []);
             _weekStart = weekMon;
             _render();
             if (cb) cb();

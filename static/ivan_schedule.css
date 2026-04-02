@@ -1,4 +1,4 @@
-/* ivan_schedule.css — Calendar Dispatch Board */
+/* ivan_schedule.css — Multi-week Calendar Dispatch Board */
 
 .sc-loading, .sc-error {
     padding: 40px; text-align: center; color: #94a3b8; font-size: 14px;
@@ -10,8 +10,7 @@
     font-size: 12px;
     color: #e2e8f0;
     font-family: 'Segoe UI', system-ui, sans-serif;
-    padding-bottom: 32px;
-    overflow-x: auto;
+    padding-bottom: 40px;
 }
 
 /* ── Nav ────────────────────────────────────────────────────────── */
@@ -19,10 +18,10 @@
     display: flex; align-items: center; gap: 8px;
     padding: 10px 0 10px;
     border-bottom: 1px solid #1e293b;
-    margin-bottom: 10px;
+    margin-bottom: 14px;
 }
 .sc-week-label {
-    flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: #f1f5f9;
+    flex: 1; text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;
 }
 .sc-nav-btn {
     background: #1e293b; border: 1px solid #334155; color: #94a3b8;
@@ -31,12 +30,37 @@
 .sc-nav-btn:hover { background: #334155; color: #f1f5f9; }
 .sc-today-btn { color: #60a5fa; border-color: #60a5fa; }
 
+/* ── Week section ───────────────────────────────────────────────── */
+.sc-week-section {
+    margin-bottom: 22px;
+}
+.sc-week-hdr {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 0 7px;
+    border-bottom: 2px solid #1e3a5f;
+    margin-bottom: 8px;
+}
+.sc-week-current .sc-week-hdr { border-bottom-color: #2563eb; }
+.sc-week-label {
+    font-size: 13px; font-weight: 700; color: #64748b;
+}
+.sc-week-current .sc-week-label { color: #93c5fd; }
+.sc-week-count {
+    font-size: 11px; color: #334155;
+}
+.sc-week-now-pill {
+    font-size: 9px; font-weight: 800;
+    background: #1d4ed8; color: #bfdbfe;
+    padding: 1px 7px; border-radius: 10px; letter-spacing: 0.05em;
+}
+
 /* ── Calendar grid ──────────────────────────────────────────────── */
 .sc-calendar {
     display: grid;
     grid-template-columns: repeat(5, minmax(190px, 1fr));
     gap: 6px;
     min-width: 980px;
+    overflow-x: auto;
 }
 
 /* ── Day column ─────────────────────────────────────────────────── */
@@ -46,7 +70,7 @@
     border-radius: 8px;
     display: flex;
     flex-direction: column;
-    min-height: 160px;
+    min-height: 120px;
 }
 .sc-col-today {
     border-color: #1d4ed8;
@@ -55,7 +79,7 @@
 
 /* ── Column header ──────────────────────────────────────────────── */
 .sc-col-hdr {
-    padding: 7px 10px 6px;
+    padding: 6px 10px 5px;
     border-bottom: 1px solid #1e293b;
     display: flex; flex-direction: column; align-items: center; gap: 1px;
     text-align: center;
@@ -65,7 +89,7 @@
     font-size: 10px; font-weight: 800; color: #475569;
     text-transform: uppercase; letter-spacing: 0.08em;
 }
-.sc-col-date { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+.sc-col-date { font-size: 13px; font-weight: 700; color: #e2e8f0; }
 .sc-col-today .sc-col-date { color: #93c5fd; }
 .sc-today-pill {
     font-size: 9px; font-weight: 800;
@@ -74,9 +98,9 @@
     margin-top: 2px;
 }
 
-/* ── Empty column message ───────────────────────────────────────── */
+/* ── Empty column ───────────────────────────────────────────────── */
 .sc-empty-col {
-    padding: 14px 10px; color: #334155;
+    padding: 12px 10px; color: #334155;
     font-size: 11px; text-align: center; font-style: italic;
 }
 
@@ -88,7 +112,6 @@
     background: var(--dc, #0f172a);
     overflow: hidden;
 }
-
 .sc-drv-hdr {
     display: flex; align-items: center; justify-content: space-between;
     padding: 4px 8px;
@@ -112,7 +135,7 @@
 }
 .sc-drv-add:hover { background: var(--db, #334155); }
 
-/* ── Return to base bar ─────────────────────────────────────────── */
+/* ── Return bar ─────────────────────────────────────────────────── */
 .sc-ret-bar {
     padding: 3px 8px; font-size: 10px; color: #475569;
     font-style: italic; background: rgba(0,0,0,0.2);
@@ -127,17 +150,15 @@
 }
 .sc-card:hover { background: rgba(255,255,255,0.02); }
 .sc-card:last-of-type { border-bottom: none; }
-
 .sc-card-done { background: #031a0e !important; border-bottom-color: #14532d !important; }
 .sc-card-done:hover { background: #042214 !important; }
 
-/* ── Card view section ──────────────────────────────────────────── */
+/* ── Card view ──────────────────────────────────────────────────── */
 .sc-card-view { padding: 5px 8px 4px; }
 
 .sc-card-top {
     display: flex; align-items: center; gap: 4px;
-    flex-wrap: nowrap; margin-bottom: 3px;
-    min-width: 0;
+    flex-wrap: nowrap; margin-bottom: 3px; min-width: 0;
 }
 .sc-seq {
     font-size: 10px; font-weight: 800; color: #475569;
@@ -165,16 +186,14 @@
 .sc-badge-repo     { background: #1c1917; color: #78716c; border: 1px solid #44403c; }
 .sc-badge-other    { background: #1e293b; color: #64748b; border: 1px solid #334155; }
 
-/* ── Load continuity chip ───────────────────────────────────────── */
+/* ── Load chip ──────────────────────────────────────────────────── */
 .sc-chip {
     display: inline-block;
     font-size: 9px; font-weight: 700;
-    border: 1px solid var(--lc, #475569);
-    color: var(--lc, #64748b);
+    border: 1px solid var(--lc, #475569); color: var(--lc, #64748b);
     padding: 1px 5px; border-radius: 10px;
-    white-space: nowrap; font-family: monospace;
-    flex-shrink: 0; max-width: 72px;
-    overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-family: monospace; flex-shrink: 0;
+    max-width: 72px; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* ── Deadhead tag ───────────────────────────────────────────────── */
@@ -183,15 +202,26 @@
     white-space: nowrap; flex-shrink: 0;
 }
 
-/* ── Route & appts ──────────────────────────────────────────────── */
+/* ── Route ──────────────────────────────────────────────────────── */
 .sc-route {
     font-size: 11px; color: #cbd5e1; margin-bottom: 2px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sc-appts {
-    font-size: 10px; color: #64748b; margin-bottom: 2px;
-    font-family: monospace;
+
+/* ── Appt row (time + status badge) ────────────────────────────── */
+.sc-appt-row {
+    display: flex; align-items: center; gap: 5px; margin-bottom: 2px;
 }
+.sc-appts {
+    font-size: 10px; color: #64748b; font-family: monospace; flex-shrink: 0;
+}
+.sc-apst {
+    font-size: 8px; font-weight: 800; padding: 1px 5px;
+    border-radius: 3px; letter-spacing: 0.04em; white-space: nowrap;
+}
+.sc-apst-need      { background: #431407; color: #fb923c; border: 1px solid #ea580c; }
+.sc-apst-req       { background: #1e3a5f; color: #60a5fa; border: 1px solid #2563eb; }
+.sc-apst-apt       { background: #14532d; color: #4ade80; border: 1px solid #22c55e; }
 
 /* ── Checkboxes ─────────────────────────────────────────────────── */
 .sc-chks {
@@ -209,31 +239,20 @@
     accent-color: #22c55e; flex-shrink: 0;
 }
 .sc-card-done .sc-chk { accent-color: #4ade80; }
-.sc-done-mark {
-    color: #4ade80; font-size: 12px; font-weight: 900; margin-left: 3px;
-}
 
-/* ── Manual completion toggle ───────────────────────────────────── */
-.sc-chks-sep {
-    flex: 1;  /* pushes DONE toggle to far right */
-}
+/* ── Manual DONE toggle ─────────────────────────────────────────── */
+.sc-chks-sep { flex: 1; }
 .sc-done-lbl {
-    font-size: 9px !important;
-    font-weight: 800 !important;
+    font-size: 9px !important; font-weight: 800 !important;
     color: #334155 !important;
-    border: 1px solid #334155;
-    border-radius: 3px;
-    padding: 1px 4px;
-    transition: color 0.1s, border-color 0.1s;
+    border: 1px solid #334155; border-radius: 3px;
+    padding: 1px 4px; transition: color 0.1s, border-color 0.1s;
 }
 .sc-done-lbl:has(.sc-done-chk:checked),
 .sc-card-done .sc-done-lbl {
-    color: #4ade80 !important;
-    border-color: #22c55e !important;
+    color: #4ade80 !important; border-color: #22c55e !important;
 }
-.sc-done-chk {
-    accent-color: #22c55e !important;
-}
+.sc-done-chk { accent-color: #22c55e !important; }
 
 /* ── Notes ──────────────────────────────────────────────────────── */
 .sc-notes {
@@ -263,24 +282,23 @@
     margin-bottom: 6px;
 }
 
-/* ── Shared form grid ───────────────────────────────────────────── */
-.sc-ef-grid {
-    display: flex; flex-direction: column; gap: 5px;
-}
-.sc-ef-row2 {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 5px;
-}
-.sc-ef-row3 {
-    display: grid; grid-template-columns: 1fr 1fr 46px; gap: 5px;
-}
-.sc-ef-row-cs {
-    display: grid; grid-template-columns: 1fr 38px; gap: 5px;
-}
+/* ── Shared form layout ─────────────────────────────────────────── */
+.sc-ef-grid { display: flex; flex-direction: column; gap: 5px; }
+
+.sc-ef-row2     { display: grid; grid-template-columns: 1fr 1fr;       gap: 5px; }
+.sc-ef-row3     { display: grid; grid-template-columns: 1fr 1fr 1fr;   gap: 5px; }
+.sc-ef-row-zip  { display: grid; grid-template-columns: 48px 1fr 32px; gap: 4px; }
+
 .sc-ef-lbl {
     display: flex; flex-direction: column; gap: 2px;
     font-size: 10px; font-weight: 600; color: #64748b;
 }
 .sc-ef-full { grid-column: 1 / -1; }
+
+/* ── ZIP warning ─────────────────────────────────────────────────── */
+.sc-zip-warn {
+    font-size: 9px; color: #f87171; display: none; margin-top: -3px;
+}
 
 /* ── Form input ─────────────────────────────────────────────────── */
 .sc-inp {
@@ -289,12 +307,10 @@
     width: 100%; box-sizing: border-box;
 }
 .sc-inp:focus { border-color: #3b82f6; }
+select.sc-inp { padding: 3px 4px; }
 
 /* ── Form buttons ───────────────────────────────────────────────── */
-.sc-ef-btns {
-    display: flex; justify-content: flex-end; gap: 6px;
-    margin-top: 7px;
-}
+.sc-ef-btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 7px; }
 .sc-btn-cancel {
     background: #0f172a; border: 1px solid #334155; color: #64748b;
     padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;
@@ -310,16 +326,10 @@
 
 /* ── Add column button ──────────────────────────────────────────── */
 .sc-add-col-btn {
-    display: block;
-    width: calc(100% - 10px);
-    margin: 5px;
-    padding: 5px 8px;
-    background: transparent;
-    border: 1px dashed #1e3a5f;
-    color: #334155;
-    border-radius: 5px; cursor: pointer;
-    font-size: 11px; text-align: center;
-    transition: all 0.1s;
-    margin-top: auto;
+    display: block; width: calc(100% - 10px);
+    margin: 5px; padding: 4px 8px;
+    background: transparent; border: 1px dashed #1e3a5f; color: #334155;
+    border-radius: 5px; cursor: pointer; font-size: 11px; text-align: center;
+    transition: all 0.1s; margin-top: auto;
 }
 .sc-add-col-btn:hover { border-color: #3b82f6; color: #60a5fa; background: #0a1e38; }

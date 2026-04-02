@@ -1299,6 +1299,7 @@ def ivan_assignment_create():
         paperwork_received  = bool(d.get('paperworkReceived', False)),
         paperwork_reviewed  = bool(d.get('paperworkReviewed', False)),
         invoicing_ready     = bool(d.get('invoicingReady', False)),
+        appt_status         = d.get('apptStatus', 'NEED'),
     )
     _db.session.add(a)
     _db.session.commit()
@@ -1331,6 +1332,7 @@ def ivan_assignment_update(aid):
     if 'paperworkReceived'  in d: a.paperwork_received = bool(d['paperworkReceived'])
     if 'paperworkReviewed'  in d: a.paperwork_reviewed = bool(d['paperworkReviewed'])
     if 'invoicingReady'     in d: a.invoicing_ready    = bool(d['invoicingReady'])
+    if 'apptStatus'         in d: a.appt_status        = d['apptStatus']
     if 'isComplete'         in d: a.is_complete        = bool(d['isComplete'])
     _db.session.commit()
     return jsonify(a.to_dict())

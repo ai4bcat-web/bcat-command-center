@@ -415,6 +415,8 @@ class IvanScheduleAssignment(db.Model):
     paperwork_received   = db.Column(db.Boolean, default=False)
     paperwork_reviewed   = db.Column(db.Boolean, default=False)
     invoicing_ready      = db.Column(db.Boolean, default=False)
+    # Appointment status for this leg (NEED | REQUESTED | APPOINTED)
+    appt_status          = db.Column(db.String(20), default='NEED')
     # Manual completion flag — set explicitly by the dispatcher
     is_complete          = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -442,6 +444,7 @@ class IvanScheduleAssignment(db.Model):
             'paperworkReceived': bool(self.paperwork_received),
             'paperworkReviewed': bool(self.paperwork_reviewed),
             'invoicingReady':    bool(self.invoicing_ready),
+            'apptStatus':        self.appt_status or 'NEED',
             'isComplete':        bool(self.is_complete),
             'load':              self.load.to_dict() if self.load else None,
             'createdAt': self.created_at.isoformat() if self.created_at else '',

@@ -216,6 +216,12 @@ def seed_schedule():
         ))
         db.session.commit()
         click.echo('  ↳ Added is_complete column to ivan_schedule_assignments.')
+    if 'appt_status' not in _cols:
+        db.session.execute(_text(
+            "ALTER TABLE ivan_schedule_assignments ADD COLUMN appt_status VARCHAR(20) DEFAULT 'NEED'"
+        ))
+        db.session.commit()
+        click.echo('  ↳ Added appt_status column to ivan_schedule_assignments.')
 
     today  = date.today()
     monday = today - timedelta(days=today.weekday())
@@ -240,7 +246,7 @@ def seed_schedule():
              orig_city, orig_st, dest_city, dest_st,
              pu_appt='', de_appt='', notes='',
              disp=False, pu=False, de=False, pw_r=False, pw_w=False, inv=False,
-             complete=False):
+             complete=False, appt='NEED'):
         return IvanScheduleAssignment(
             id=aid, load_id=ld.id, week_start=week, date=date_str,
             driver_name=driver, sequence_number=seq, action_type=action,
@@ -249,7 +255,7 @@ def seed_schedule():
             pu_appt=pu_appt, de_appt=de_appt, notes=notes,
             dispatched=disp, picked_up=pu, delivered=de,
             paperwork_received=pw_r, paperwork_reviewed=pw_w, invoicing_ready=inv,
-            is_complete=complete)
+            appt_status=appt, is_complete=complete)
 
     # ── Loads ──────────────────────────────────────────────────────────────────
     # L1: Chicago → Milwaukee  (Alexei, Mon, P&D — FULLY COMPLETE)
@@ -277,34 +283,35 @@ def seed_schedule():
     # ── Assignments ────────────────────────────────────────────────────────────
     assignments = [
         # MONDAY
-        # Alexei seq 1 — PICKUP_AND_DELIVER L1 (manually marked complete → green card)
+        # Alexei seq 1 — P&D L1 (complete, appointed)
         asgn('asgn-seed-001', L1, day(0), 'Alexei', 1, 'PICKUP_AND_DELIVER',
              'Chicago','IL','Milwaukee','WI','07:00','11:30','Reefer 34°F',
-             disp=True, pu=True, de=True, pw_r=True, pw_w=True, inv=True, complete=True),
-        # Alexei seq 2 — PICKUP L2, staged at yard overnight
+             disp=True, pu=True, de=True, pw_r=True, pw_w=True, inv=True,
+             complete=True, appt='APPOINTED'),
+        # Alexei seq 2 — PICKUP L2, staged overnight (appt requested)
         asgn('asgn-seed-002', L2, day(0), 'Alexei', 2, 'PICKUP',
              'Kenosha','WI','Pleasant Prairie','WI','13:00','',
-             'Staging at yard overnight', disp=True, pu=True),
-        # Ivan seq 1 — PICKUP_AND_DELIVER L3 (dispatched only)
+             'Staging at yard overnight', disp=True, pu=True, appt='REQUESTED'),
+        # Ivan seq 1 — P&D L3, dispatched only (appt needed)
         asgn('asgn-seed-003', L3, day(0), 'Ivan', 1, 'PICKUP_AND_DELIVER',
              'Chicago','IL','Detroit','MI','09:00','17:00',
-             'Team driver preferred', disp=True),
+             'Team driver preferred', disp=True, appt='NEED'),
 
         # TUESDAY
-        # Ivan seq 1 — DELIVERY L2 (continuation of Alexei's Monday pickup)
+        # Ivan seq 1 — DELIVERY L2 (appointed)
         asgn('asgn-seed-004', L2, day(1), 'Ivan', 1, 'DELIVERY',
-             'Pleasant Prairie','WI','Rockford','IL','','09:00'),
-        # Alexei seq 1 — PICKUP_AND_DELIVER L4
+             'Pleasant Prairie','WI','Rockford','IL','','09:00', appt='APPOINTED'),
+        # Alexei seq 1 — P&D L4 (appointed)
         asgn('asgn-seed-005', L4, day(1), 'Alexei', 1, 'PICKUP_AND_DELIVER',
-             'Waukegan','IL','Milwaukee','WI','06:30','10:00', disp=True),
-        # Alexei seq 2 — REPOSITION back to Chicago (empty move)
+             'Waukegan','IL','Milwaukee','WI','06:30','10:00', disp=True, appt='APPOINTED'),
+        # Alexei seq 2 — REPOSITION back to Chicago
         asgn('asgn-seed-006', L5, day(1), 'Alexei', 2, 'REPOSITION',
              'Milwaukee','WI','Chicago','IL'),
 
         # WEDNESDAY
-        # Alexei seq 1 — PICKUP L6
+        # Alexei seq 1 — PICKUP L6 (appt requested)
         asgn('asgn-seed-007', L6, day(2), 'Alexei', 1, 'PICKUP',
-             'Joliet','IL','Indianapolis','IN','08:00','14:00'),
+             'Joliet','IL','Indianapolis','IN','08:00','14:00', appt='REQUESTED'),
     ]
 
     for a in assignments:

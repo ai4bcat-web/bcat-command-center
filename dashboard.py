@@ -1181,97 +1181,167 @@ def ivan_invoice_delete(iid):
 
 # ── Ivan Cartage — Driver Schedule ────────────────────────────────────────────
 
+# ── Ivan Cartage — Dispatch Schedule (Load + Assignment model) ─────────────────
+
 @app.route('/api/ivan/schedule', methods=['GET'])
 @login_required
 def ivan_schedule_list():
-    """Return all schedule entries for a given week.
-    Query param: weekStart=YYYY-MM-DD (Monday of the week)
+    """Return assignments for a week plus all loads for the dropdown.
+    Query param: weekStart=YYYY-MM-DD (Monday)
     """
-    from models import IvanScheduleEntry
+    from models import IvanScheduleAssignment, IvanLoad
     week_start = request.args.get('weekStart', '')
     if not week_start:
-        return jsonify([])
-    entries = (IvanScheduleEntry.query
-               .filter_by(week_start=week_start)
-               .order_by(IvanScheduleEntry.day_date, IvanScheduleEntry.row_order)
-               .all())
-    return jsonify([e.to_dict() for e in entries])
+        return jsonify({'assignments': [], 'loads': []})
+    assignments = (IvanScheduleAssignment.query
+                   .filter_by(week_start=week_start)
+                   .order_by(IvanScheduleAssignment.date,
+                              IvanScheduleAssignment.driver_name,
+                              IvanScheduleAssignment.sequence_number)
+                   .all())
+    loads = IvanLoad.query.order_by(IvanLoad.created_at.desc()).all()
+    return jsonify({
+        'assignments': [a.to_dict() for a in assignments],
+        'loads':       [l.to_dict() for l in loads],
+    })
 
 
-@app.route('/api/ivan/schedule/entries', methods=['POST'])
+@app.route('/api/ivan/loads', methods=['GET'])
 @login_required
-def ivan_schedule_create():
-    from models import IvanScheduleEntry
+def ivan_loads_list():
+    from models import IvanLoad
+    loads = IvanLoad.query.order_by(IvanLoad.created_at.desc()).all()
+    return jsonify([l.to_dict() for l in loads])
+
+
+@app.route('/api/ivan/loads', methods=['POST'])
+@login_required
+def ivan_load_create():
+    import uuid as _uuid
+    from models import IvanLoad
     from extensions import db as _db
-    d = request.get_json()
-    e = IvanScheduleEntry(
-        id=d['id'], week_start=d['weekStart'], day_date=d['dayDate'],
-        row_order=d.get('rowOrder', 0),
-        alexei_id=d.get('alexeiId',''), tms_id=d.get('tmsId',''),
-        pu_number=d.get('puNumber',''), pu_appt=d.get('puAppt',''),
-        de_appt=d.get('deAppt',''), pu_city=d.get('puCity',''),
-        pu_state=d.get('puState','').upper(), de_city=d.get('deCity',''),
-        de_state=d.get('deState','').upper(), notes=d.get('notes',''),
-        status=d.get('status',''),
-        start_deadhead_miles=d.get('startDeadheadMiles',0) or 0,
-        between_deadhead_miles=d.get('betweenDeadheadMiles',0) or 0,
-        return_deadhead_miles=d.get('returnDeadheadMiles',0) or 0,
-        total_deadhead_miles=d.get('totalDeadheadMiles',0) or 0,
+    d = request.get_json() or {}
+    load = IvanLoad(
+        id        = d.get('id') or ('load-' + _uuid.uuid4().hex[:8]),
+        alexei_id = d.get('alexeiId', ''),
+        tms_id    = d.get('tmsId', ''),
+        pu_number = d.get('puNumber', ''),
+        pu_city   = d.get('puCity', ''),
+        pu_state  = (d.get('puState') or '').upper(),
+        de_city   = d.get('deCity', ''),
+        de_state  = (d.get('deState') or '').upper(),
+        pu_appt   = d.get('puAppt', ''),
+        de_appt   = d.get('deAppt', ''),
+        notes     = d.get('notes', ''),
     )
-    _db.session.add(e)
+    _db.session.add(load)
     _db.session.commit()
-    return jsonify(e.to_dict()), 201
+    return jsonify(load.to_dict()), 201
 
 
-@app.route('/api/ivan/schedule/entries/<eid>', methods=['PUT'])
+@app.route('/api/ivan/loads/<lid>', methods=['PUT'])
 @login_required
-def ivan_schedule_update(eid):
-    from models import IvanScheduleEntry
+def ivan_load_update(lid):
+    from models import IvanLoad
     from extensions import db as _db
-    e = IvanScheduleEntry.query.get_or_404(eid)
-    d = request.get_json()
-    if 'alexeiId'             in d: e.alexei_id              = d['alexeiId']
-    if 'tmsId'                in d: e.tms_id                 = d['tmsId']
-    if 'puNumber'             in d: e.pu_number              = d['puNumber']
-    if 'puAppt'               in d: e.pu_appt                = d['puAppt']
-    if 'deAppt'               in d: e.de_appt                = d['deAppt']
-    if 'puCity'               in d: e.pu_city                = d['puCity']
-    if 'puState'              in d: e.pu_state               = d['puState'].upper()
-    if 'deCity'               in d: e.de_city                = d['deCity']
-    if 'deState'              in d: e.de_state               = d['deState'].upper()
-    if 'notes'                in d: e.notes                  = d['notes']
-    if 'status'               in d: e.status                 = d['status']
-    if 'rowOrder'             in d: e.row_order              = d['rowOrder']
-    if 'startDeadheadMiles'   in d: e.start_deadhead_miles   = d['startDeadheadMiles'] or 0
-    if 'betweenDeadheadMiles' in d: e.between_deadhead_miles = d['betweenDeadheadMiles'] or 0
-    if 'returnDeadheadMiles'  in d: e.return_deadhead_miles  = d['returnDeadheadMiles'] or 0
-    if 'totalDeadheadMiles'   in d: e.total_deadhead_miles   = d['totalDeadheadMiles'] or 0
+    load = IvanLoad.query.get_or_404(lid)
+    d = request.get_json() or {}
+    if 'alexeiId' in d: load.alexei_id = d['alexeiId']
+    if 'tmsId'    in d: load.tms_id    = d['tmsId']
+    if 'puNumber' in d: load.pu_number = d['puNumber']
+    if 'puCity'   in d: load.pu_city   = d['puCity']
+    if 'puState'  in d: load.pu_state  = (d['puState'] or '').upper()
+    if 'deCity'   in d: load.de_city   = d['deCity']
+    if 'deState'  in d: load.de_state  = (d['deState'] or '').upper()
+    if 'puAppt'   in d: load.pu_appt   = d['puAppt']
+    if 'deAppt'   in d: load.de_appt   = d['deAppt']
+    if 'notes'    in d: load.notes     = d['notes']
     _db.session.commit()
-    return jsonify(e.to_dict())
+    return jsonify(load.to_dict())
 
 
-@app.route('/api/ivan/schedule/entries/<eid>', methods=['DELETE'])
+@app.route('/api/ivan/loads/<lid>', methods=['DELETE'])
 @login_required
-def ivan_schedule_delete(eid):
-    from models import IvanScheduleEntry
+def ivan_load_delete(lid):
+    from models import IvanLoad
     from extensions import db as _db
-    e = IvanScheduleEntry.query.get_or_404(eid)
-    _db.session.delete(e)
+    load = IvanLoad.query.get_or_404(lid)
+    _db.session.delete(load)
     _db.session.commit()
     return jsonify({'ok': True})
 
 
-@app.route('/api/ivan/schedule/entries/reorder', methods=['POST'])
+@app.route('/api/ivan/schedule/assignments', methods=['POST'])
 @login_required
-def ivan_schedule_reorder():
-    """Accepts [{id, rowOrder}, ...] and bulk-updates row_order values."""
-    from models import IvanScheduleEntry
+def ivan_assignment_create():
+    import uuid as _uuid
+    from models import IvanScheduleAssignment
     from extensions import db as _db
-    items = request.get_json() or []
-    for item in items:
-        e = IvanScheduleEntry.query.get(item['id'])
-        if e:
-            e.row_order = item['rowOrder']
+    d = request.get_json() or {}
+    a = IvanScheduleAssignment(
+        id              = d.get('id') or ('asgn-' + _uuid.uuid4().hex[:8]),
+        load_id         = d.get('loadId') or None,
+        week_start      = d['weekStart'],
+        date            = d['date'],
+        driver_name     = d.get('driverName', ''),
+        sequence_number = int(d.get('sequenceNumber', 1)),
+        action_type     = d.get('actionType', 'PICKUP'),
+        origin_city     = d.get('originCity', ''),
+        origin_state    = (d.get('originState') or '').upper(),
+        dest_city       = d.get('destCity', ''),
+        dest_state      = (d.get('destState') or '').upper(),
+        pu_appt         = d.get('puAppt', ''),
+        de_appt         = d.get('deAppt', ''),
+        notes           = d.get('notes', ''),
+        dispatched          = bool(d.get('dispatched', False)),
+        picked_up           = bool(d.get('pickedUp', False)),
+        delivered           = bool(d.get('delivered', False)),
+        paperwork_received  = bool(d.get('paperworkReceived', False)),
+        paperwork_reviewed  = bool(d.get('paperworkReviewed', False)),
+        invoicing_ready     = bool(d.get('invoicingReady', False)),
+    )
+    _db.session.add(a)
+    _db.session.commit()
+    return jsonify(a.to_dict()), 201
+
+
+@app.route('/api/ivan/schedule/assignments/<aid>', methods=['PUT'])
+@login_required
+def ivan_assignment_update(aid):
+    from models import IvanScheduleAssignment
+    from extensions import db as _db
+    a = IvanScheduleAssignment.query.get_or_404(aid)
+    d = request.get_json() or {}
+    if 'loadId'          in d: a.load_id         = d['loadId'] or None
+    if 'date'            in d: a.date             = d['date']
+    if 'weekStart'       in d: a.week_start       = d['weekStart']
+    if 'driverName'      in d: a.driver_name      = d['driverName']
+    if 'sequenceNumber'  in d: a.sequence_number  = int(d['sequenceNumber'])
+    if 'actionType'      in d: a.action_type      = d['actionType']
+    if 'originCity'      in d: a.origin_city      = d['originCity']
+    if 'originState'     in d: a.origin_state     = (d['originState'] or '').upper()
+    if 'destCity'        in d: a.dest_city        = d['destCity']
+    if 'destState'       in d: a.dest_state       = (d['destState'] or '').upper()
+    if 'puAppt'          in d: a.pu_appt          = d['puAppt']
+    if 'deAppt'          in d: a.de_appt          = d['deAppt']
+    if 'notes'           in d: a.notes            = d['notes']
+    if 'dispatched'         in d: a.dispatched         = bool(d['dispatched'])
+    if 'pickedUp'           in d: a.picked_up          = bool(d['pickedUp'])
+    if 'delivered'          in d: a.delivered          = bool(d['delivered'])
+    if 'paperworkReceived'  in d: a.paperwork_received = bool(d['paperworkReceived'])
+    if 'paperworkReviewed'  in d: a.paperwork_reviewed = bool(d['paperworkReviewed'])
+    if 'invoicingReady'     in d: a.invoicing_ready    = bool(d['invoicingReady'])
+    _db.session.commit()
+    return jsonify(a.to_dict())
+
+
+@app.route('/api/ivan/schedule/assignments/<aid>', methods=['DELETE'])
+@login_required
+def ivan_assignment_delete(aid):
+    from models import IvanScheduleAssignment
+    from extensions import db as _db
+    a = IvanScheduleAssignment.query.get_or_404(aid)
+    _db.session.delete(a)
     _db.session.commit()
     return jsonify({'ok': True})
 

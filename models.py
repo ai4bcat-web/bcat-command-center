@@ -346,6 +346,113 @@ class IvanScheduleEntry(db.Model):
         }
 
 
+class IvanLoad(db.Model):
+    """Master shipment record. One load may have multiple driver assignments across days."""
+    __tablename__ = 'ivan_loads'
+
+    id         = db.Column(db.String(50),  primary_key=True)
+    alexei_id  = db.Column(db.String(100), default='')   # PRO #
+    tms_id     = db.Column(db.String(100), default='')
+    pu_number  = db.Column(db.String(100), default='')
+    pu_city    = db.Column(db.String(100), default='')
+    pu_state   = db.Column(db.String(10),  default='')
+    de_city    = db.Column(db.String(100), default='')
+    de_state   = db.Column(db.String(10),  default='')
+    pu_appt    = db.Column(db.String(20),  default='')
+    de_appt    = db.Column(db.String(20),  default='')
+    notes      = db.Column(db.Text,        default='')
+    created_at = db.Column(db.DateTime,    default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime,    default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    assignments = db.relationship('IvanScheduleAssignment', backref='load',
+                                  lazy='dynamic', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id':        self.id,
+            'alexeiId':  self.alexei_id  or '',
+            'tmsId':     self.tms_id     or '',
+            'puNumber':  self.pu_number  or '',
+            'puCity':    self.pu_city    or '',
+            'puState':   self.pu_state   or '',
+            'deCity':    self.de_city    or '',
+            'deState':   self.de_state   or '',
+            'puAppt':    self.pu_appt    or '',
+            'deAppt':    self.de_appt    or '',
+            'notes':     self.notes      or '',
+            'createdAt': self.created_at.isoformat() if self.created_at else '',
+            'updatedAt': self.updated_at.isoformat() if self.updated_at else '',
+        }
+
+
+class IvanScheduleAssignment(db.Model):
+    """
+    One driver/day action leg for a load.
+    A single IvanLoad may have multiple assignments (e.g. Driver A picks up Mon,
+    Driver B delivers Tue). sequenceNumber orders a driver's actions within a day.
+    """
+    __tablename__ = 'ivan_schedule_assignments'
+
+    id               = db.Column(db.String(50),  primary_key=True)
+    load_id          = db.Column(db.String(50),  db.ForeignKey('ivan_loads.id'), nullable=True)
+    week_start       = db.Column(db.String(10),  nullable=False, index=True)
+    date             = db.Column(db.String(10),  nullable=False, index=True)
+    driver_name      = db.Column(db.String(100), default='')
+    sequence_number  = db.Column(db.Integer,     default=1)
+    # PICKUP | DELIVERY | PICKUP_AND_DELIVER | REPOSITION | OTHER
+    action_type      = db.Column(db.String(50),  default='PICKUP')
+    origin_city      = db.Column(db.String(100), default='')
+    origin_state     = db.Column(db.String(10),  default='')
+    dest_city        = db.Column(db.String(100), default='')
+    dest_state       = db.Column(db.String(10),  default='')
+    pu_appt          = db.Column(db.String(20),  default='')
+    de_appt          = db.Column(db.String(20),  default='')
+    notes            = db.Column(db.Text,        default='')
+    # Workflow checkboxes
+    dispatched           = db.Column(db.Boolean, default=False)
+    picked_up            = db.Column(db.Boolean, default=False)
+    delivered            = db.Column(db.Boolean, default=False)
+    paperwork_received   = db.Column(db.Boolean, default=False)
+    paperwork_reviewed   = db.Column(db.Boolean, default=False)
+    invoicing_ready      = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def is_fully_complete(self):
+        return bool(self.dispatched and self.picked_up and self.delivered
+                    and self.paperwork_received and self.paperwork_reviewed
+                    and self.invoicing_ready)
+
+    def to_dict(self):
+        return {
+            'id':                self.id,
+            'loadId':            self.load_id          or '',
+            'weekStart':         self.week_start,
+            'date':              self.date,
+            'driverName':        self.driver_name       or '',
+            'sequenceNumber':    self.sequence_number,
+            'actionType':        self.action_type       or 'PICKUP',
+            'originCity':        self.origin_city       or '',
+            'originState':       self.origin_state      or '',
+            'destCity':          self.dest_city         or '',
+            'destState':         self.dest_state        or '',
+            'puAppt':            self.pu_appt           or '',
+            'deAppt':            self.de_appt           or '',
+            'notes':             self.notes             or '',
+            'dispatched':        bool(self.dispatched),
+            'pickedUp':          bool(self.picked_up),
+            'delivered':         bool(self.delivered),
+            'paperworkReceived': bool(self.paperwork_received),
+            'paperworkReviewed': bool(self.paperwork_reviewed),
+            'invoicingReady':    bool(self.invoicing_ready),
+            'isFullyComplete':   self.is_fully_complete,
+            'load':              self.load.to_dict() if self.load else None,
+            'createdAt': self.created_at.isoformat() if self.created_at else '',
+            'updatedAt': self.updated_at.isoformat() if self.updated_at else '',
+        }
+
+
 class RelaySession(db.Model):
     """Stores Amazon Relay browser cookies for headless session reuse on Railway."""
     __tablename__ = 'relay_sessions'

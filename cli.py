@@ -200,70 +200,107 @@ def reset_password(email, new_password):
 @click.command('seed-schedule')
 @with_appcontext
 def seed_schedule():
-    """Seed sample schedule data for the current week so the dispatch board renders immediately."""
+    """Seed multi-driver dispatch sample data for the current week."""
     from datetime import date, timedelta
-    from models import IvanScheduleEntry
+    from models import IvanLoad, IvanScheduleAssignment
     from extensions import db as _db
 
-    # Find Monday of current week
-    today = date.today()
-    monday = today - timedelta(days=today.weekday())
-    week_str = monday.isoformat()
+    db.create_all()
 
-    # Delete any existing seed data for this week to allow re-seeding
-    existing = IvanScheduleEntry.query.filter_by(week_start=week_str).all()
-    for e in existing:
-        _db.session.delete(e)
+    today  = date.today()
+    monday = today - timedelta(days=today.weekday())
+    week   = monday.isoformat()
+    def day(n): return (monday + timedelta(days=n)).isoformat()
+
+    # Wipe previous seed data
+    IvanScheduleAssignment.query.filter(
+        IvanScheduleAssignment.id.like('asgn-seed-%')).delete(synchronize_session=False)
+    IvanLoad.query.filter(
+        IvanLoad.id.like('load-seed-%')).delete(synchronize_session=False)
     _db.session.commit()
 
-    def make(day_offset, row_order, entry_id, alexei_id, tms_id, pu_num,
-             pu_appt, de_appt, pu_city, pu_state, de_city, de_state,
-             notes, status, start_dh, between_dh, return_dh):
-        day = (monday + timedelta(days=day_offset)).isoformat()
-        return IvanScheduleEntry(
-            id=entry_id, week_start=week_str, day_date=day, row_order=row_order,
-            alexei_id=alexei_id, tms_id=tms_id, pu_number=pu_num,
-            pu_appt=pu_appt, de_appt=de_appt,
-            pu_city=pu_city, pu_state=pu_state,
-            de_city=de_city, de_state=de_state,
-            notes=notes, status=status,
-            start_deadhead_miles=start_dh,
-            between_deadhead_miles=between_dh,
-            return_deadhead_miles=return_dh,
-            total_deadhead_miles=start_dh + return_dh,
-        )
+    def load(lid, pro, tms, pu_num, pu_city, pu_st, de_city, de_st,
+             pu_appt='', de_appt='', notes=''):
+        return IvanLoad(id=lid, alexei_id=pro, tms_id=tms, pu_number=pu_num,
+                        pu_city=pu_city, pu_state=pu_st,
+                        de_city=de_city, de_state=de_st,
+                        pu_appt=pu_appt, de_appt=de_appt, notes=notes)
 
-    entries = [
-        # Monday — 3 loads
-        make(0,0,'seed-mon-1','PRO-10421','TMS-8801','PU-4421','07:00','11:30',
-             'Chicago','IL','Racine','WI','Reefer — keep at 34°F','delivered',47,0,25),
-        make(0,1,'seed-mon-2','PRO-10422','TMS-8802','PU-4422','13:00','17:00',
-             'Kenosha','WI','Milwaukee','WI','','dispatched',18,0,22),
-        make(0,2,'seed-mon-3','PRO-10423','TMS-8803','PU-4423','19:00','23:00',
-             'Waukegan','IL','Joliet','IL','Drop and hook','pending',15,0,72),
+    def asgn(aid, ld, date_str, driver, seq, action,
+             orig_city, orig_st, dest_city, dest_st,
+             pu_appt='', de_appt='', notes='',
+             disp=False, pu=False, de=False, pw_r=False, pw_w=False, inv=False):
+        return IvanScheduleAssignment(
+            id=aid, load_id=ld.id, week_start=week, date=date_str,
+            driver_name=driver, sequence_number=seq, action_type=action,
+            origin_city=orig_city, origin_state=orig_st,
+            dest_city=dest_city,  dest_state=dest_st,
+            pu_appt=pu_appt, de_appt=de_appt, notes=notes,
+            dispatched=disp, picked_up=pu, delivered=de,
+            paperwork_received=pw_r, paperwork_reviewed=pw_w, invoicing_ready=inv)
 
-        # Tuesday — 2 loads
-        make(1,0,'seed-tue-1','PRO-10431','TMS-8811','PU-4431','06:30','10:00',
-             'Chicago Heights','IL','Rockford','IL','','dispatched',55,0,105),
-        make(1,1,'seed-tue-2','PRO-10432','TMS-8812','PU-4432','14:00','19:00',
-             'Elgin','IL','Gary','IN','Flatbed — secure properly','pending',90,0,85),
+    # ── Loads ──────────────────────────────────────────────────────────────────
+    # L1: Chicago → Milwaukee  (Alexei, Mon, P&D — FULLY COMPLETE)
+    L1 = load('load-seed-001','PRO-10421','TMS-8801','PU-4421',
+               'Chicago','IL','Milwaukee','WI','07:00','11:30','Reefer 34°F')
+    # L2: Kenosha → Rockford  (SPLIT — Alexei picks up Mon, Ivan delivers Tue)
+    L2 = load('load-seed-002','PRO-10422','TMS-8802','PU-4422',
+               'Kenosha','WI','Rockford','IL','13:00','09:00')
+    # L3: Chicago → Detroit   (Ivan, Mon, P&D, partial progress)
+    L3 = load('load-seed-003','PRO-10423','TMS-8803','PU-4423',
+               'Chicago','IL','Detroit','MI','09:00','17:00','Team driver preferred')
+    # L4: Waukegan → Milwaukee (Alexei, Tue)
+    L4 = load('load-seed-004','PRO-10431','TMS-8811','PU-4431',
+               'Waukegan','IL','Milwaukee','WI','06:30','10:00')
+    # L5: Empty reposition (Alexei Tue seq 2 — no load reference, Milwaukee back to Chicago)
+    L5 = load('load-seed-005','','','','Milwaukee','WI','Chicago','IL')
+    # L6: Joliet → Indianapolis (Alexei, Wed)
+    L6 = load('load-seed-006','PRO-10441','TMS-8821','PU-4441',
+               'Joliet','IL','Indianapolis','IN','08:00','14:00')
 
-        # Wednesday — 2 loads
-        make(2,0,'seed-wed-1','PRO-10441','TMS-8821','PU-4441','08:00','13:00',
-             'Joliet','IL','Indianapolis','IN','','pending',78,0,180),
-        make(2,1,'seed-wed-2','PRO-10442','TMS-8822','PU-4442','15:00','20:00',
-             'Aurora','IL','Champaign','IL','Liftgate required','pending',62,0,148),
+    for l in [L1,L2,L3,L4,L5,L6]:
+        _db.session.add(l)
+    _db.session.flush()
 
-        # Thursday — 1 load
-        make(3,0,'seed-thu-1','PRO-10451','TMS-8831','PU-4451','07:00','12:00',
-             'Milwaukee','WI','Detroit','MI','','pending',22,0,290),
+    # ── Assignments ────────────────────────────────────────────────────────────
+    assignments = [
+        # MONDAY
+        # Alexei seq 1 — PICKUP_AND_DELIVER L1 (FULLY COMPLETE → green row)
+        asgn('asgn-seed-001', L1, day(0), 'Alexei', 1, 'PICKUP_AND_DELIVER',
+             'Chicago','IL','Milwaukee','WI','07:00','11:30','Reefer 34°F',
+             disp=True, pu=True, de=True, pw_r=True, pw_w=True, inv=True),
+        # Alexei seq 2 — PICKUP L2, staged at yard overnight
+        asgn('asgn-seed-002', L2, day(0), 'Alexei', 2, 'PICKUP',
+             'Kenosha','WI','Pleasant Prairie','WI','13:00','',
+             'Staging at yard overnight', disp=True, pu=True),
+        # Ivan seq 1 — PICKUP_AND_DELIVER L3 (dispatched only)
+        asgn('asgn-seed-003', L3, day(0), 'Ivan', 1, 'PICKUP_AND_DELIVER',
+             'Chicago','IL','Detroit','MI','09:00','17:00',
+             'Team driver preferred', disp=True),
 
-        # Friday — 1 load
-        make(4,0,'seed-fri-1','PRO-10461','TMS-8841','PU-4461','09:00','14:00',
-             'Chicago','IL','St Louis','MO','','pending',47,0,310),
+        # TUESDAY
+        # Ivan seq 1 — DELIVERY L2 (continuation of Alexei's Monday pickup)
+        asgn('asgn-seed-004', L2, day(1), 'Ivan', 1, 'DELIVERY',
+             'Pleasant Prairie','WI','Rockford','IL','','09:00'),
+        # Alexei seq 1 — PICKUP_AND_DELIVER L4
+        asgn('asgn-seed-005', L4, day(1), 'Alexei', 1, 'PICKUP_AND_DELIVER',
+             'Waukegan','IL','Milwaukee','WI','06:30','10:00', disp=True),
+        # Alexei seq 2 — REPOSITION back to Chicago (empty move)
+        asgn('asgn-seed-006', L5, day(1), 'Alexei', 2, 'REPOSITION',
+             'Milwaukee','WI','Chicago','IL'),
+
+        # WEDNESDAY
+        # Alexei seq 1 — PICKUP L6
+        asgn('asgn-seed-007', L6, day(2), 'Alexei', 1, 'PICKUP',
+             'Joliet','IL','Indianapolis','IN','08:00','14:00'),
     ]
 
-    for e in entries:
-        _db.session.add(e)
+    for a in assignments:
+        _db.session.add(a)
     _db.session.commit()
-    click.echo(f'Seeded {len(entries)} schedule entries for week of {week_str}.')
+
+    click.echo(f'Seeded {len(assignments)} assignments across 6 loads for week of {week}.')
+    click.echo('  ✓ Green row: PRO-10421 (Alexei Mon, fully complete)')
+    click.echo('  ✓ Split load: PRO-10422 (Alexei picks up Mon → Ivan delivers Tue)')
+    click.echo('  ✓ Multi-move day: Alexei Tue has P&D + Reposition')
+    click.echo('  ✓ Partial progress: PRO-10423 (Ivan Mon, dispatched only)')

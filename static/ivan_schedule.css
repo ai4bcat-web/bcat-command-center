@@ -1,320 +1,232 @@
-/* ivan_schedule.css — Driver Dispatch Board styles */
+/* ivan_schedule.css — Multi-driver Dispatch Board */
 
-/* ── Loading / Error states ──────────────────────────────────────────────── */
-.sch-loading,
-.sch-error {
-    padding: 40px;
-    text-align: center;
-    color: #94a3b8;
-    font-size: 14px;
+.sch-loading, .sch-error {
+    padding: 40px; text-align: center; color: #94a3b8; font-size: 14px;
 }
 .sch-error { color: #ef4444; }
 
-/* ── Board wrapper ───────────────────────────────────────────────────────── */
+/* ── Board ─────────────────────────────────────────────────────────────────── */
 .sch-board {
     padding: 0 16px 32px;
-    font-size: 13px;
+    font-size: 12px;
     color: #e2e8f0;
-    max-width: 1300px;
+    max-width: 1400px;
+    font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
-/* ── Week navigation bar ─────────────────────────────────────────────────── */
+/* ── Nav bar ────────────────────────────────────────────────────────────────── */
 .sch-nav {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 0 10px;
-    border-bottom: 1px solid #334155;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 0 10px; border-bottom: 1px solid #334155;
+    margin-bottom: 12px; flex-wrap: wrap;
 }
-.sch-week-label {
-    font-size: 15px;
-    font-weight: 600;
-    color: #f1f5f9;
-    flex: 1;
-    text-align: center;
-}
+.sch-week-label { flex: 1; text-align: center; font-size: 14px; font-weight: 600; color: #f1f5f9; }
 .sch-nav-btn {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #94a3b8;
-    padding: 5px 12px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 12px;
-    transition: background 0.15s;
+    background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+    padding: 4px 11px; border-radius: 5px; cursor: pointer; font-size: 11px;
 }
 .sch-nav-btn:hover { background: #334155; color: #f1f5f9; }
 .sch-today-btn { color: #60a5fa; border-color: #60a5fa; }
 .sch-add-btn {
-    background: #2563eb;
-    border: 1px solid #3b82f6;
-    color: #fff;
-    padding: 5px 14px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 600;
-    margin-left: auto;
-    transition: background 0.15s;
+    background: #2563eb; border: 1px solid #3b82f6; color: #fff;
+    padding: 4px 13px; border-radius: 5px; cursor: pointer; font-size: 11px;
+    font-weight: 600; margin-left: auto;
 }
 .sch-add-btn:hover { background: #1d4ed8; }
 
-/* ── Column header row ───────────────────────────────────────────────────── */
-.sch-col-header {
-    display: flex;
-    align-items: center;
-    background: #0f172a;
-    border: 1px solid #1e293b;
-    border-radius: 6px 6px 0 0;
-    padding: 0 6px;
-    font-size: 11px;
-    font-weight: 700;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    height: 30px;
-    gap: 4px;
-}
+/* ── Day section ────────────────────────────────────────────────────────────── */
+.sch-day-section { margin-bottom: 18px; }
 
-/* ── Day group ───────────────────────────────────────────────────────────── */
-.sch-day-group {
-    border: 1px solid #1e293b;
-    border-top: none;
-    margin-bottom: 0;
+.sch-day-hdr {
+    display: flex; align-items: center; gap: 10px;
+    background: #0f1e35; border: 1px solid #1e3a5f; border-radius: 6px 6px 0 0;
+    padding: 7px 12px;
 }
-.sch-day-group:last-child { border-radius: 0 0 6px 6px; }
-
-.sch-day-header {
-    display: flex;
-    align-items: center;
-    background: #1a2744;
-    padding: 6px 10px;
-    border-bottom: 1px solid #2d3f60;
-    gap: 10px;
+.sch-day-name { font-size: 13px; font-weight: 700; color: #93c5fd; }
+.sch-day-count { font-size: 11px; color: #475569; }
+.sch-day-add {
+    margin-left: auto; background: transparent; border: 1px solid #334155;
+    color: #64748b; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;
 }
-.sch-day-name {
-    font-size: 13px;
-    font-weight: 700;
-    color: #93c5fd;
-}
-.sch-day-count {
-    font-size: 11px;
-    color: #64748b;
-}
-.sch-day-add-btn {
-    margin-left: auto;
-    background: transparent;
-    border: 1px solid #334155;
-    color: #64748b;
-    padding: 2px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 11px;
-    transition: all 0.15s;
-}
-.sch-day-add-btn:hover { background: #1e293b; color: #93c5fd; border-color: #93c5fd; }
+.sch-day-add:hover { background: #1e293b; color: #93c5fd; border-color: #60a5fa; }
 
 .sch-empty-day {
-    padding: 10px 12px;
-    color: #475569;
-    font-size: 12px;
-    font-style: italic;
+    padding: 10px 14px; color: #475569; font-style: italic; font-size: 12px;
+    background: #0f172a; border: 1px solid #1e293b; border-top: none;
+    border-radius: 0 0 6px 6px;
 }
 
-/* ── Data rows ───────────────────────────────────────────────────────────── */
-.sch-row {
-    display: flex;
-    align-items: center;
-    padding: 0 6px;
-    min-height: 34px;
+/* ── Driver group ────────────────────────────────────────────────────────────── */
+.sch-driver-group {
+    border: 1px solid #1e3a5f; border-top: none;
+    margin-bottom: 2px;
+}
+.sch-driver-group:last-child { border-radius: 0 0 6px 6px; }
+
+.sch-driver-hdr {
+    display: flex; align-items: center; gap: 10px;
+    background: #132240; border-bottom: 1px solid #1e3a5f;
+    padding: 5px 10px;
+}
+.sch-driver-name { font-size: 12px; font-weight: 800; color: #bfdbfe; letter-spacing: 0.06em; }
+.sch-driver-dh   { font-size: 11px; color: #64748b; }
+.sch-driver-add  {
+    margin-left: auto; background: transparent; border: 1px solid #1e3a5f;
+    color: #475569; padding: 2px 7px; border-radius: 4px; cursor: pointer; font-size: 11px;
+}
+.sch-driver-add:hover { background: #1e293b; color: #60a5fa; border-color: #60a5fa; }
+
+/* ── Column header row ───────────────────────────────────────────────────────── */
+.sch-col-hdr {
+    display: flex; align-items: center; gap: 3px;
+    background: #0a1628; padding: 3px 6px;
+    font-size: 10px; font-weight: 700; color: #475569;
+    text-transform: uppercase; letter-spacing: 0.05em;
     border-bottom: 1px solid #1e293b;
-    gap: 4px;
+}
+.sch-col-hdr .sch-c-chks { display: flex; gap: 10px; justify-content: space-around; }
+.sch-col-hdr .sch-c-chks span { cursor: help; }
+
+/* ── Assignment row ──────────────────────────────────────────────────────────── */
+.sch-row {
+    display: flex; align-items: center; gap: 3px;
+    padding: 0 6px; min-height: 32px;
+    border-bottom: 1px solid #0f172a;
     transition: background 0.1s;
 }
-.sch-row:last-child { border-bottom: none; }
-.sch-row:hover { background: #1a2235; }
+.sch-row:hover { background: #111d2e; }
+.sch-row:last-of-type { border-bottom: none; }
 
-/* ── Column widths ───────────────────────────────────────────────────────── */
-.sch-col { padding: 4px 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.sch-col-order   { width: 44px; min-width: 44px; display: flex; flex-direction: column; gap: 1px; align-items: center; justify-content: center; }
-.sch-col-id      { width: 90px; min-width: 90px; font-family: monospace; font-size: 12px; color: #a5b4fc; }
-.sch-col-tms     { width: 90px; min-width: 90px; font-family: monospace; font-size: 12px; color: #94a3b8; }
-.sch-col-pu      { width: 80px; min-width: 80px; font-family: monospace; font-size: 12px; color: #94a3b8; }
-.sch-col-appt    { width: 68px; min-width: 68px; font-family: monospace; font-size: 12px; }
-.sch-col-city    { flex: 1; min-width: 110px; font-size: 12px; }
-.sch-col-dh      { width: 64px; min-width: 64px; text-align: right; font-size: 12px; color: #64748b; }
-.sch-col-status  { width: 90px; min-width: 90px; }
-.sch-col-notes   { flex: 1.2; min-width: 100px; color: #64748b; font-size: 12px; }
-.sch-col-actions { width: 78px; min-width: 78px; display: flex; gap: 4px; justify-content: flex-end; }
-
-.sch-dh-val { color: #f59e0b; font-weight: 600; }
-
-/* ── Row reorder arrows ──────────────────────────────────────────────────── */
-.sch-arrow {
-    background: none;
-    border: none;
-    color: #475569;
-    cursor: pointer;
-    font-size: 10px;
-    padding: 2px 3px;
-    line-height: 1;
-    border-radius: 3px;
-    transition: color 0.1s;
+/* Completed row — strong green highlight */
+.sch-row.sch-row-done {
+    background: #052e16 !important;
+    border-bottom-color: #14532d;
 }
-.sch-arrow:hover { color: #93c5fd; background: #1e293b; }
-.sch-arrow-ph { display: inline-block; width: 20px; }
+.sch-row.sch-row-done:hover { background: #064e27 !important; }
 
-/* ── Edit / Delete buttons ───────────────────────────────────────────────── */
+/* ── Column widths ───────────────────────────────────────────────────────────── */
+.sch-c         { padding: 3px 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.sch-c-seq     { width: 24px;  min-width: 24px;  text-align: center; color: #64748b; font-weight: 700; }
+.sch-c-ref     { width: 86px;  min-width: 86px;  font-family: monospace; font-size: 11px; color: #a5b4fc; }
+.sch-c-act     { width: 90px;  min-width: 90px;  }
+.sch-c-city    { flex: 1;      min-width: 110px; font-size: 12px; }
+.sch-c-time    { width: 46px;  min-width: 46px;  font-family: monospace; font-size: 11px; color: #94a3b8; }
+.sch-c-dh      { width: 56px;  min-width: 56px;  text-align: right; font-size: 11px; color: #64748b; }
+.sch-c-chks    { width: 114px; min-width: 114px; display: flex; gap: 8px; justify-content: space-around; align-items: center; }
+.sch-c-done    { width: 22px;  min-width: 22px;  text-align: center; }
+.sch-c-btn     { width: 68px;  min-width: 68px;  display: flex; gap: 3px; justify-content: flex-end; align-items: center; }
+
+.sch-dh-hi { color: #f59e0b; font-weight: 700; }
+
+/* ── Checkboxes ──────────────────────────────────────────────────────────────── */
+.sch-chk {
+    width: 14px; height: 14px; cursor: pointer;
+    accent-color: #22c55e;
+    flex-shrink: 0;
+}
+.sch-row-done .sch-chk { accent-color: #4ade80; }
+
+/* ── Completion indicator ────────────────────────────────────────────────────── */
+.sch-done-icon {
+    display: inline-block;
+    color: #4ade80; font-size: 14px; font-weight: 900; line-height: 1;
+}
+
+/* ── Return to base bar ──────────────────────────────────────────────────────── */
+.sch-return-bar {
+    padding: 4px 12px; font-size: 11px; color: #475569; font-style: italic;
+    background: #080f1a; border-top: 1px solid #0f172a;
+    border-radius: 0 0 4px 4px;
+}
+
+/* ── Notes sub-row ───────────────────────────────────────────────────────────── */
+.sch-row-notes {
+    padding: 2px 10px 4px 34px; font-size: 11px; color: #475569;
+    border-bottom: 1px solid #0a1628; background: #080f1a;
+    font-style: italic; cursor: default;
+}
+.sch-row-done + .sch-row-notes { background: #041d10; color: #15803d; }
+
+/* ── Action badges ───────────────────────────────────────────────────────────── */
+.sch-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 3px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.sch-badge-pickup     { background: #1e3a5f; color: #60a5fa; border: 1px solid #2563eb; }
+.sch-badge-delivery   { background: #431407; color: #fb923c; border: 1px solid #ea580c; }
+.sch-badge-pad        { background: #3b0764; color: #c084fc; border: 1px solid #9333ea; }
+.sch-badge-reposition { background: #1c1917; color: #78716c; border: 1px solid #44403c; }
+.sch-badge-other      { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+
+/* ── Edit / Delete buttons ───────────────────────────────────────────────────── */
 .sch-edit-btn {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #60a5fa;
-    padding: 2px 7px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 11px;
-    transition: background 0.15s;
+    background: #1e293b; border: 1px solid #334155; color: #60a5fa;
+    padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;
 }
 .sch-edit-btn:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
 .sch-del-btn {
-    background: none;
-    border: none;
-    color: #475569;
-    cursor: pointer;
-    font-size: 13px;
-    padding: 2px 4px;
-    border-radius: 4px;
-    transition: color 0.15s;
+    background: none; border: none; color: #334155; cursor: pointer;
+    font-size: 12px; padding: 2px 3px; border-radius: 3px;
 }
 .sch-del-btn:hover { color: #ef4444; background: #1e293b; }
 
-/* ── Status badges ───────────────────────────────────────────────────────── */
-.sch-status-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: capitalize;
-    white-space: nowrap;
-}
-.sch-status-pending    { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
-.sch-status-dispatched { background: #1e3a5f; color: #60a5fa; border: 1px solid #2563eb; }
-.sch-status-delivered  { background: #14532d; color: #4ade80; border: 1px solid #22c55e; }
-.sch-status-cancelled  { background: #3b1e1e; color: #ef4444; border: 1px solid #991b1b; }
-
-/* ── Notes tooltip ───────────────────────────────────────────────────────── */
-.sch-notes-cell { cursor: default; }
-
-/* ── Modal overlay ───────────────────────────────────────────────────────── */
+/* ── Modal overlay ───────────────────────────────────────────────────────────── */
 .sch-modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.65);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center; z-index: 1000;
 }
-
-/* ── Modal box ───────────────────────────────────────────────────────────── */
 .sch-modal {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 10px;
-    width: 680px;
-    max-width: 96vw;
-    max-height: 90vh;
-    overflow-y: auto;
-    box-shadow: 0 24px 60px rgba(0,0,0,0.6);
-    display: flex;
-    flex-direction: column;
+    background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+    width: 700px; max-width: 96vw; max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.7); display: flex; flex-direction: column;
 }
-.sch-modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px 12px;
-    border-bottom: 1px solid #334155;
-    font-size: 16px;
-    font-weight: 700;
-    color: #f1f5f9;
+.sch-modal-hdr {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 20px 12px; border-bottom: 1px solid #334155;
+    font-size: 15px; font-weight: 700; color: #f1f5f9;
 }
-.sch-modal-close {
-    background: none;
-    border: none;
-    color: #64748b;
-    cursor: pointer;
-    font-size: 16px;
-    padding: 4px 6px;
-    border-radius: 4px;
-    transition: color 0.15s;
+.sch-modal-x {
+    background: none; border: none; color: #64748b; cursor: pointer; font-size: 15px;
+    padding: 3px 6px; border-radius: 4px;
 }
-.sch-modal-close:hover { color: #f1f5f9; }
+.sch-modal-x:hover { color: #f1f5f9; }
+.sch-modal-body { padding: 16px 20px; }
+.sch-modal-ftr {
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding: 12px 20px 14px; border-top: 1px solid #334155;
+}
 
-.sch-modal-body { padding: 18px 20px; }
+/* ── Section labels ──────────────────────────────────────────────────────────── */
+.sch-section-label {
+    font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
+    color: #475569; margin-bottom: 8px; padding-bottom: 4px;
+    border-bottom: 1px solid #1e293b;
+}
 
-/* ── Form grid inside modal ──────────────────────────────────────────────── */
+/* ── Form grid ───────────────────────────────────────────────────────────────── */
 .sch-form-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px 16px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px;
 }
-.sch-form-grid label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #94a3b8;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-.sch-form-grid label:last-child { grid-column: 1 / -1; }
-
+.sch-form-grid label { font-size: 11px; font-weight: 600; color: #94a3b8; display: flex; flex-direction: column; gap: 3px; }
+.sch-full { grid-column: 1 / -1; }
 .sch-inp {
-    background: #0f172a;
-    border: 1px solid #334155;
-    border-radius: 5px;
-    color: #e2e8f0;
-    padding: 7px 10px;
-    font-size: 13px;
-    outline: none;
-    width: 100%;
-    box-sizing: border-box;
-    transition: border-color 0.15s;
+    background: #0f172a; border: 1px solid #334155; border-radius: 4px;
+    color: #e2e8f0; padding: 6px 9px; font-size: 12px; outline: none;
+    width: 100%; box-sizing: border-box; transition: border-color 0.15s;
 }
 .sch-inp:focus { border-color: #3b82f6; }
-.sch-textarea { resize: vertical; min-height: 56px; }
+.sch-textarea { resize: vertical; min-height: 48px; }
 
-.sch-modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    padding: 12px 20px 16px;
-    border-top: 1px solid #334155;
-}
+/* ── Modal buttons ───────────────────────────────────────────────────────────── */
 .sch-btn-cancel {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #94a3b8;
-    padding: 7px 18px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: background 0.15s;
+    background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+    padding: 7px 16px; border-radius: 5px; cursor: pointer; font-size: 12px;
 }
 .sch-btn-cancel:hover { background: #334155; }
 .sch-btn-save {
-    background: #2563eb;
-    border: 1px solid #3b82f6;
-    color: #fff;
-    padding: 7px 20px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    transition: background 0.15s;
+    background: #2563eb; border: 1px solid #3b82f6; color: #fff;
+    padding: 7px 20px; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600;
 }
 .sch-btn-save:hover { background: #1d4ed8; }
 .sch-btn-save:disabled { background: #1e3a5f; color: #64748b; cursor: not-allowed; }

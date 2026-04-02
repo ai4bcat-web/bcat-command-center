@@ -1,93 +1,36 @@
 /**
- * ivan_schedule.js — Driver Scheduling / Dispatch Board for Ivan Cartage
- * IIFE module: IvanScheduleApp.mountSchedule(containerId)
+ * ivan_schedule.js — Multi-driver Dispatch Board for Ivan Cartage
+ * IvanScheduleApp.mountSchedule(containerId)
  *
- * Backend API:
- *   GET  /api/ivan/schedule?weekStart=YYYY-MM-DD
- *   POST /api/ivan/schedule/entries          { ...fields }
- *   PUT  /api/ivan/schedule/entries/:id      { ...fields }
- *   DELETE /api/ivan/schedule/entries/:id
- *   POST /api/ivan/schedule/entries/reorder  { entries:[{id,dayDate,rowOrder},...] }
+ * Concept: one IvanLoad may span multiple driver assignments across days.
+ * Board groups by day → driver → sequence number.
+ * Inline checkboxes update immediately via optimistic UI.
+ * Rows turn green when all 6 workflow steps are complete.
+ *
+ * API:
+ *   GET  /api/ivan/schedule?weekStart=         → {assignments, loads}
+ *   POST /api/ivan/loads                        → create load
+ *   PUT  /api/ivan/loads/:id                   → update load
+ *   POST /api/ivan/schedule/assignments         → create assignment
+ *   PUT  /api/ivan/schedule/assignments/:id    → update / toggle checkboxes
+ *   DELETE /api/ivan/schedule/assignments/:id  → delete
  */
 var IvanScheduleApp = (function () {
     'use strict';
 
-    // ── State ────────────────────────────────────────────────────────────────
-    var _containerId = null;
-    var _weekStart   = null;   // ISO Monday string, e.g. '2025-07-14'
-    var _entries     = [];     // flat array of entry objects from API
-    var _editingId   = null;   // null = new entry
+    // ── Base terminal ────────────────────────────────────────────────────────
+    // Pleasant Prairie, WI — all driver days start and end here
+    var BASE = [43.1006, -87.8751];
 
-    // ── CSRF / API helper ────────────────────────────────────────────────────
-    function _csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
-        return meta ? meta.getAttribute('content') : '';
-    }
-
-    function _api(method, path, body) {
-        var opts = {
-            method: method,
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf() }
-        };
-        if (body !== undefined) opts.body = JSON.stringify(body);
-        return fetch(path, opts).then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || r.statusText); });
-            return r.json();
-        });
-    }
-
-    // ── Week helpers ─────────────────────────────────────────────────────────
-    function _mondayOf(date) {
-        var d = new Date(date);
-        var day = d.getDay();                    // 0=Sun
-        var diff = (day === 0) ? -6 : 1 - day;  // Monday offset
-        d.setDate(d.getDate() + diff);
-        return _isoDate(d);
-    }
-
-    function _isoDate(d) {
-        var y = d.getFullYear();
-        var m = String(d.getMonth() + 1).padStart(2, '0');
-        var dy = String(d.getDate()).padStart(2, '0');
-        return y + '-' + m + '-' + dy;
-    }
-
-    function _addDays(iso, n) {
-        var d = new Date(iso + 'T00:00:00');
-        d.setDate(d.getDate() + n);
-        return _isoDate(d);
-    }
-
-    function _weekDays(weekMon) {
-        return [0, 1, 2, 3, 4].map(function (i) {
-            return _addDays(weekMon, i);
-        });
-    }
-
-    function _fmtWeekLabel(weekMon) {
-        var d = new Date(weekMon + 'T00:00:00');
-        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        var sun = new Date(weekMon + 'T00:00:00');
-        sun.setDate(sun.getDate() + 6);
-        return 'Week of ' + months[d.getMonth()] + ' ' + d.getDate() + ' – ' +
-               months[sun.getMonth()] + ' ' + sun.getDate() + ', ' + sun.getFullYear();
-    }
-
-    function _fmtDayHeader(iso) {
-        var d = new Date(iso + 'T00:00:00');
-        var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        return days[d.getDay()] + ', ' + months[d.getMonth()] + ' ' + d.getDate();
-    }
-
-    // ── Deadhead Calculator ──────────────────────────────────────────────────
-    // City coordinates lookup — augment as needed
-    // Integration point: replace _cityCoords() with a real geocoding call for full coverage
-    var CITY_COORDS = {
+    // ── City coordinates (lat, lon) ──────────────────────────────────────────
+    // Integration point: replace _latLon() with a geocoding API for full coverage
+    var COORDS = {
         'chicago il':          [41.8781, -87.6298],
         'chicago heights il':  [41.5061, -87.6373],
         'kenosha wi':          [42.5847, -87.8212],
         'milwaukee wi':        [43.0389, -87.9065],
+        'pleasant prairie wi': [43.1006, -87.8751],
+        'pleasant prairie':    [43.1006, -87.8751],
         'waukegan il':         [42.3636, -87.8448],
         'joliet il':           [41.5250, -88.0817],
         'racine wi':           [42.7261, -87.7829],
@@ -99,386 +42,577 @@ var IvanScheduleApp = (function () {
         'indianapolis in':     [39.7684, -86.1581],
         'detroit mi':          [42.3314, -83.0458],
         'st louis mo':         [38.6270, -90.1994],
-        'base terminal':       [41.8781, -87.6298],  // Default base: Chicago IL
+        'schaumburg il':       [42.0334, -88.0834],
+        'oak brook il':        [41.8317, -87.9484],
+        'carol stream il':     [41.9131, -88.1348],
+        'bolingbrook il':      [41.6986, -88.0684],
     };
 
+    // ── Action display config ────────────────────────────────────────────────
+    var ACTION_LABEL = {
+        PICKUP:             'PICKUP',
+        DELIVERY:           'DELIVERY',
+        PICKUP_AND_DELIVER: 'P&D',
+        REPOSITION:         'REPOSITION',
+        OTHER:              'OTHER',
+    };
+    var ACTION_CSS = {
+        PICKUP:             'sch-badge-pickup',
+        DELIVERY:           'sch-badge-delivery',
+        PICKUP_AND_DELIVER: 'sch-badge-pad',
+        REPOSITION:         'sch-badge-reposition',
+        OTHER:              'sch-badge-other',
+    };
+
+    // ── State ────────────────────────────────────────────────────────────────
+    var _cid         = null;   // container element ID
+    var _weekStart   = null;   // ISO Monday string
+    var _assignments = [];     // flat array from API
+    var _loads       = [];     // all loads (for dropdown)
+    var _editAsgn    = null;   // assignment being edited (null = new)
+    var _editLoadId  = null;   // load being referenced in open modal
+
+    // ── CSRF / fetch helper ──────────────────────────────────────────────────
+    function _csrf() {
+        var m = document.querySelector('meta[name="csrf-token"]');
+        return m ? m.getAttribute('content') : '';
+    }
+    function _api(method, path, body) {
+        var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf() } };
+        if (body !== undefined) opts.body = JSON.stringify(body);
+        return fetch(path, opts).then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || r.statusText); });
+            return r.json();
+        });
+    }
+
+    // ── Week helpers ─────────────────────────────────────────────────────────
+    function _isoDate(d) {
+        return d.getFullYear() + '-' +
+               String(d.getMonth() + 1).padStart(2, '0') + '-' +
+               String(d.getDate()).padStart(2, '0');
+    }
+    function _mondayOf(d) {
+        var dt = new Date(d);
+        var wd = dt.getDay();
+        dt.setDate(dt.getDate() + (wd === 0 ? -6 : 1 - wd));
+        return _isoDate(dt);
+    }
+    function _addDays(iso, n) {
+        var d = new Date(iso + 'T00:00:00');
+        d.setDate(d.getDate() + n);
+        return _isoDate(d);
+    }
+    function _weekDays() {
+        return [0, 1, 2, 3, 4].map(function (i) { return _addDays(_weekStart, i); });
+    }
+    function _fmtWeekLabel() {
+        var d = new Date(_weekStart + 'T00:00:00');
+        var e = new Date(_weekStart + 'T00:00:00'); e.setDate(e.getDate() + 6);
+        var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return 'Week of ' + M[d.getMonth()] + ' ' + d.getDate() +
+               ' \u2013 ' + M[e.getMonth()] + ' ' + e.getDate() + ', ' + e.getFullYear();
+    }
+    function _fmtDay(iso) {
+        var d = new Date(iso + 'T00:00:00');
+        var D = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return D[d.getDay()] + ', ' + M[d.getMonth()] + ' ' + d.getDate();
+    }
+
+    // ── Deadhead calculator ──────────────────────────────────────────────────
     function _latLon(city, state) {
         if (!city) return null;
-        var key = (city + ' ' + (state || '')).toLowerCase().trim();
-        return CITY_COORDS[key] || null;
+        var k = ((city || '') + ' ' + (state || '')).toLowerCase().trim().replace(/\s+/g, ' ');
+        return COORDS[k] || COORDS[city.toLowerCase().trim()] || null;
     }
-
     function _haversineKm(a, b) {
-        var R = 6371;
-        var dLat = (b[0] - a[0]) * Math.PI / 180;
-        var dLon = (b[1] - a[1]) * Math.PI / 180;
-        var sin1 = Math.sin(dLat / 2), sin2 = Math.sin(dLon / 2);
-        var c = 2 * Math.asin(Math.sqrt(sin1 * sin1 + Math.cos(a[0] * Math.PI / 180) * Math.cos(b[0] * Math.PI / 180) * sin2 * sin2));
-        return R * c;
+        var R = 6371, dLat = (b[0]-a[0])*Math.PI/180, dLon = (b[1]-a[1])*Math.PI/180;
+        var s = Math.sin(dLat/2), t = Math.sin(dLon/2);
+        return 2*R*Math.asin(Math.sqrt(s*s + Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*t*t));
+    }
+    function _road(km) { return Math.round(km * 0.621371 * 1.25); }
+
+    // Compute per-assignment deadhead for a driver's sorted day sequence.
+    // Returns [{toDH, retDH}] — retDH is non-zero only for the last assignment.
+    function _driverDH(sorted) {
+        return sorted.map(function (a, i) {
+            var orig = _latLon(a.originCity, a.originState);
+            var dest = _latLon(a.destCity,   a.destState);
+            var toDH = 0, retDH = 0;
+            if (i === 0) {
+                if (orig) toDH = _road(_haversineKm(BASE, orig));
+            } else {
+                var prev = sorted[i - 1];
+                var pd = _latLon(prev.destCity, prev.destState);
+                if (pd && orig) toDH = _road(_haversineKm(pd, orig));
+            }
+            if (i === sorted.length - 1 && dest) retDH = _road(_haversineKm(dest, BASE));
+            return { toDH: toDH, retDH: retDH };
+        });
     }
 
-    function _straightMilesToRoad(km) {
-        return Math.round(km * 0.621371 * 1.25); // km → miles × road factor
+    // ── Completion ───────────────────────────────────────────────────────────
+    function _complete(a) {
+        return !!(a.dispatched && a.pickedUp && a.delivered &&
+                  a.paperworkReceived && a.paperworkReviewed && a.invoicingReady);
     }
 
-    function _calcDeadhead(puCity, puState, deCity, deState, prevDeCity, prevDeState, isFirst, isLast) {
-        var base = CITY_COORDS['base terminal'];
-        var pu   = _latLon(puCity, puState);
-        var de   = _latLon(deCity, deState);
-        var prev = prevDeCity ? _latLon(prevDeCity, prevDeState) : null;
-
-        var start   = 0;
-        var between = 0;
-        var ret     = 0;
-
-        if (isFirst && pu) {
-            start = _straightMilesToRoad(_haversineKm(base, pu));
-        }
-        if (!isFirst && prev && pu) {
-            between = _straightMilesToRoad(_haversineKm(prev, pu));
-        }
-        if (isLast && de) {
-            ret = _straightMilesToRoad(_haversineKm(de, base));
-        }
-
-        return { start: start, between: between, ret: ret, total: start + between + ret };
+    // ── HTML escape ──────────────────────────────────────────────────────────
+    function _e(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                               .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    // ── Data loading ─────────────────────────────────────────────────────────
-    function _loadWeek(weekMon, cb) {
-        var container = document.getElementById(_containerId);
-        if (container) container.innerHTML = '<div class="sch-loading">Loading schedule…</div>';
+    // ── Load data ────────────────────────────────────────────────────────────
+    function _load(weekMon) {
+        var el = document.getElementById(_cid);
+        if (el) el.innerHTML = '<div class="sch-loading">Loading schedule\u2026</div>';
         _api('GET', '/api/ivan/schedule?weekStart=' + weekMon).then(function (data) {
-            _entries = Array.isArray(data) ? data : (data.entries || []);
-            _weekStart = weekMon;
+            _assignments = Array.isArray(data) ? data : (data.assignments || []);
+            _loads       = Array.isArray(data) ? [] : (data.loads || []);
+            _weekStart   = weekMon;
             _render();
-            if (cb) cb();
         }).catch(function (err) {
-            if (container) container.innerHTML = '<div class="sch-error">Failed to load: ' + err.message + '</div>';
+            var el = document.getElementById(_cid);
+            if (el) el.innerHTML = '<div class="sch-error">Failed to load: ' + err.message + '</div>';
         });
     }
 
     // ── Render ───────────────────────────────────────────────────────────────
     function _render() {
-        var container = document.getElementById(_containerId);
-        if (!container) return;
-
-        var days = _weekDays(_weekStart);
-        var byDay = {};
-        days.forEach(function (d) { byDay[d] = []; });
-        _entries.forEach(function (e) {
-            if (byDay[e.dayDate]) byDay[e.dayDate].push(e);
-            else byDay[e.dayDate] = [e];
+        var el = document.getElementById(_cid);
+        if (!el) return;
+        var html = '<div class="sch-board">' + _navHTML();
+        _weekDays().forEach(function (day) {
+            html += _dayHTML(day, _assignments.filter(function (a) { return a.date === day; }));
         });
-        days.forEach(function (d) {
-            byDay[d].sort(function (a, b) { return a.rowOrder - b.rowOrder; });
-        });
+        html += '</div>' + _modalHTML();
+        el.innerHTML = html;
+        _bind(el);
+    }
 
-        var html = '<div class="sch-board">';
-
-        // ── Week navigation bar ──
-        html += '<div class="sch-nav">' +
-            '<button class="sch-nav-btn" data-action="prev-week">&#9664; Prev</button>' +
-            '<span class="sch-week-label">' + _fmtWeekLabel(_weekStart) + '</span>' +
-            '<button class="sch-nav-btn" data-action="next-week">Next &#9654;</button>' +
+    function _navHTML() {
+        return '<div class="sch-nav">' +
+            '<button class="sch-nav-btn" data-action="prev-week">\u25c4 Prev</button>' +
+            '<span class="sch-week-label">' + _fmtWeekLabel() + '</span>' +
+            '<button class="sch-nav-btn" data-action="next-week">Next \u25ba</button>' +
             '<button class="sch-nav-btn sch-today-btn" data-action="today-week">Today</button>' +
-            '<button class="sch-add-btn" data-action="add-entry">+ Add Load</button>' +
+            '<button class="sch-add-btn" data-action="add-asgn">+ Add Assignment</button>' +
+            '</div>';
+    }
+
+    function _dayHTML(day, dayAsgns) {
+        var drivers = [];
+        dayAsgns.forEach(function (a) {
+            var d = (a.driverName || 'Unassigned').trim();
+            if (drivers.indexOf(d) < 0) drivers.push(d);
+        });
+        drivers.sort();
+
+        var html = '<div class="sch-day-section">' +
+            '<div class="sch-day-hdr">' +
+                '<span class="sch-day-name">' + _fmtDay(day) + '</span>' +
+                '<span class="sch-day-count">' + dayAsgns.length + ' assignment' + (dayAsgns.length !== 1 ? 's' : '') + '</span>' +
+                '<button class="sch-day-add" data-action="add-asgn" data-day="' + day + '">+ Add</button>' +
             '</div>';
 
-        // ── Dispatch board columns header ──
-        html += '<div class="sch-col-header">' +
-            '<div class="sch-col sch-col-order"></div>' +
-            '<div class="sch-col sch-col-id">PRO #</div>' +
-            '<div class="sch-col sch-col-tms">TMS ID</div>' +
-            '<div class="sch-col sch-col-pu">PU #</div>' +
-            '<div class="sch-col sch-col-appt">PU Appt</div>' +
-            '<div class="sch-col sch-col-appt">DE Appt</div>' +
-            '<div class="sch-col sch-col-city">PU City</div>' +
-            '<div class="sch-col sch-col-city">DE City</div>' +
-            '<div class="sch-col sch-col-dh">DH mi</div>' +
-            '<div class="sch-col sch-col-status">Status</div>' +
-            '<div class="sch-col sch-col-notes">Notes</div>' +
-            '<div class="sch-col sch-col-actions"></div>' +
-            '</div>';
+        if (drivers.length === 0) {
+            html += '<div class="sch-empty-day">No assignments scheduled</div>';
+        } else {
+            drivers.forEach(function (driver) {
+                var da = dayAsgns.filter(function (a) {
+                    return (a.driverName || 'Unassigned').trim() === driver;
+                }).sort(function (a, b) { return a.sequenceNumber - b.sequenceNumber; });
+                html += _driverGroupHTML(driver, day, da);
+            });
+        }
+        return html + '</div>';
+    }
 
-        // ── Day groups ──
-        days.forEach(function (dayDate) {
-            var rows = byDay[dayDate];
-            html += '<div class="sch-day-group" data-day="' + dayDate + '">';
-            html += '<div class="sch-day-header">' +
-                '<span class="sch-day-name">' + _fmtDayHeader(dayDate) + '</span>' +
-                '<span class="sch-day-count">' + rows.length + ' load' + (rows.length !== 1 ? 's' : '') + '</span>' +
-                '<button class="sch-day-add-btn" data-action="add-entry" data-day="' + dayDate + '">+ Add</button>' +
-                '</div>';
+    var COL_HDR =
+        '<div class="sch-col-hdr">' +
+        '<div class="sch-c sch-c-seq">#</div>' +
+        '<div class="sch-c sch-c-ref">Load Ref</div>' +
+        '<div class="sch-c sch-c-act">Action</div>' +
+        '<div class="sch-c sch-c-city">From</div>' +
+        '<div class="sch-c sch-c-city">To</div>' +
+        '<div class="sch-c sch-c-time">PU</div>' +
+        '<div class="sch-c sch-c-time">DE</div>' +
+        '<div class="sch-c sch-c-dh">DH</div>' +
+        '<div class="sch-c sch-c-chks"><span title="Dispatched">D</span>' +
+            '<span title="Picked Up">P</span><span title="Delivered">V</span>' +
+            '<span title="Paperwork Rcvd">R</span><span title="Paperwork Rev\'d">W</span>' +
+            '<span title="Invoicing Ready">I</span></div>' +
+        '<div class="sch-c sch-c-done"></div>' +
+        '<div class="sch-c sch-c-btn"></div>' +
+        '</div>';
 
-            if (rows.length === 0) {
-                html += '<div class="sch-empty-day">No loads scheduled</div>';
-            } else {
-                rows.forEach(function (e, idx) {
-                    var isFirst = idx === 0;
-                    var isLast  = idx === rows.length - 1;
-                    var prevEntry = isFirst ? null : rows[idx - 1];
-                    var dh = _calcDeadhead(
-                        e.puCity, e.puState, e.deCity, e.deState,
-                        prevEntry ? prevEntry.deCity : null,
-                        prevEntry ? prevEntry.deState : null,
-                        isFirst, isLast
-                    );
-                    var dhMi = dh.start || dh.between || dh.ret;
+    function _driverGroupHTML(driver, day, sorted) {
+        var dh     = _driverDH(sorted);
+        var totalDH = dh.reduce(function (s, v) { return s + v.toDH; }, 0);
+        var retDH   = dh.length ? dh[dh.length - 1].retDH : 0;
 
-                    var statusClass = 'sch-status-' + (e.status || 'pending').replace(/\s+/g, '-');
-                    html += '<div class="sch-row" data-id="' + e.id + '">' +
-                        '<div class="sch-col sch-col-order">' +
-                            (idx > 0 ? '<button class="sch-arrow" data-action="move-up" data-id="' + e.id + '" title="Move up">&#9650;</button>' : '<span class="sch-arrow-ph"></span>') +
-                            (idx < rows.length - 1 ? '<button class="sch-arrow" data-action="move-down" data-id="' + e.id + '" title="Move down">&#9660;</button>' : '<span class="sch-arrow-ph"></span>') +
-                        '</div>' +
-                        '<div class="sch-col sch-col-id">' + _esc(e.alexeiId || '') + '</div>' +
-                        '<div class="sch-col sch-col-tms">' + _esc(e.tmsId || '') + '</div>' +
-                        '<div class="sch-col sch-col-pu">' + _esc(e.puNumber || '') + '</div>' +
-                        '<div class="sch-col sch-col-appt">' + _esc(e.puAppt || '') + '</div>' +
-                        '<div class="sch-col sch-col-appt">' + _esc(e.deAppt || '') + '</div>' +
-                        '<div class="sch-col sch-col-city">' + _esc(e.puCity || '') + (e.puState ? ', ' + _esc(e.puState) : '') + '</div>' +
-                        '<div class="sch-col sch-col-city">' + _esc(e.deCity || '') + (e.deState ? ', ' + _esc(e.deState) : '') + '</div>' +
-                        '<div class="sch-col sch-col-dh' + (dhMi > 0 ? ' sch-dh-val' : '') + '">' + (dhMi > 0 ? dhMi + ' mi' : '—') + '</div>' +
-                        '<div class="sch-col sch-col-status"><span class="sch-status-badge ' + statusClass + '">' + _esc(e.status || 'pending') + '</span></div>' +
-                        '<div class="sch-col sch-col-notes sch-notes-cell" title="' + _esc(e.notes || '') + '">' + _esc((e.notes || '').substring(0, 30)) + (e.notes && e.notes.length > 30 ? '…' : '') + '</div>' +
-                        '<div class="sch-col sch-col-actions">' +
-                            '<button class="sch-edit-btn" data-action="edit-entry" data-id="' + e.id + '">Edit</button>' +
-                            '<button class="sch-del-btn" data-action="del-entry" data-id="' + e.id + '">&#128465;</button>' +
-                        '</div>' +
-                        '</div>';
-                });
-            }
-            html += '</div>'; // .sch-day-group
+        var html = '<div class="sch-driver-group">' +
+            '<div class="sch-driver-hdr">' +
+                '<span class="sch-driver-name">' + _e(driver.toUpperCase()) + '</span>' +
+                (totalDH > 0 ? '<span class="sch-driver-dh">DH in: ' + totalDH + ' mi</span>' : '') +
+                '<button class="sch-driver-add" data-action="add-asgn" data-day="' + day + '" data-driver="' + _e(driver) + '">+ Add</button>' +
+            '</div>' + COL_HDR;
+
+        sorted.forEach(function (a, i) {
+            html += _rowHTML(a, dh[i].toDH);
         });
 
-        html += '</div>'; // .sch-board
-        html += _modalHTML();
-
-        container.innerHTML = html;
-        _bindEvents(container);
+        if (retDH > 0) {
+            html += '<div class="sch-return-bar">\u21a9 Return to base (Pleasant Prairie, WI): ' + retDH + ' mi</div>';
+        }
+        return html + '</div>';
     }
 
-    function _esc(str) {
-        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    function _rowHTML(a, dhMi) {
+        var done  = _complete(a);
+        var load  = a.load || {};
+        var ref   = _e(load.alexeiId || (a.loadId ? a.loadId.substring(0, 12) : '\u2014'));
+        var label = ACTION_LABEL[a.actionType] || a.actionType || '?';
+        var css   = ACTION_CSS[a.actionType]   || 'sch-badge-other';
+
+        function chk(field, val) {
+            return '<input type="checkbox" class="sch-chk"' + (val ? ' checked' : '') +
+                   ' data-action="toggle-chk" data-id="' + a.id + '" data-field="' + field + '">';
+        }
+
+        var row = '<div class="sch-row' + (done ? ' sch-row-done' : '') + '" data-id="' + a.id + '">' +
+            '<div class="sch-c sch-c-seq">' + a.sequenceNumber + '</div>' +
+            '<div class="sch-c sch-c-ref" title="' + _e(load.tmsId || '') + '">' + ref + '</div>' +
+            '<div class="sch-c sch-c-act"><span class="sch-badge ' + css + '">' + _e(label) + '</span></div>' +
+            '<div class="sch-c sch-c-city">' + _e(a.originCity || '') + (a.originState ? ', ' + _e(a.originState) : '') + '</div>' +
+            '<div class="sch-c sch-c-city">' + _e(a.destCity   || '') + (a.destState   ? ', ' + _e(a.destState)   : '') + '</div>' +
+            '<div class="sch-c sch-c-time">' + _e(a.puAppt || '') + '</div>' +
+            '<div class="sch-c sch-c-time">' + _e(a.deAppt || '') + '</div>' +
+            '<div class="sch-c sch-c-dh' + (dhMi > 0 ? ' sch-dh-hi' : '') + '">' + (dhMi > 0 ? dhMi + ' mi' : '\u2014') + '</div>' +
+            '<div class="sch-c sch-c-chks">' +
+                chk('dispatched',         a.dispatched) +
+                chk('pickedUp',           a.pickedUp) +
+                chk('delivered',          a.delivered) +
+                chk('paperworkReceived',  a.paperworkReceived) +
+                chk('paperworkReviewed',  a.paperworkReviewed) +
+                chk('invoicingReady',     a.invoicingReady) +
+            '</div>' +
+            '<div class="sch-c sch-c-done">' + (done ? '<span class="sch-done-icon" title="Fully complete">\u2713</span>' : '') + '</div>' +
+            '<div class="sch-c sch-c-btn">' +
+                '<button class="sch-edit-btn" data-action="edit-asgn" data-id="' + a.id + '">Edit</button>' +
+                '<button class="sch-del-btn"  data-action="del-asgn"  data-id="' + a.id + '">\u{1F5D1}</button>' +
+            '</div>' +
+            '</div>';
+
+        if (a.notes) {
+            row += '<div class="sch-row-notes" title="' + _e(a.notes) + '">' +
+                '\u{1F4CB} ' + _e(a.notes.length > 80 ? a.notes.substring(0, 80) + '\u2026' : a.notes) +
+                '</div>';
+        }
+        return row;
     }
 
-    // ── Modal HTML ────────────────────────────────────────────────────────────
+    // ── Modal ────────────────────────────────────────────────────────────────
     function _modalHTML() {
+        var loadOpts = '<option value="">— New Load —</option>';
+        _loads.forEach(function (l) {
+            var label = [l.alexeiId, l.tmsId,
+                (l.puCity && l.deCity ? l.puCity + ' \u2192 ' + l.deCity : '')
+            ].filter(Boolean).join(' | ');
+            loadOpts += '<option value="' + _e(l.id) + '">' + _e(label || l.id) + '</option>';
+        });
+
         return '<div id="sch-modal" class="sch-modal-overlay" style="display:none">' +
             '<div class="sch-modal">' +
-                '<div class="sch-modal-header">' +
-                    '<span id="sch-modal-title">Add Load</span>' +
-                    '<button class="sch-modal-close" data-action="close-modal">&#10005;</button>' +
+                '<div class="sch-modal-hdr">' +
+                    '<span id="sch-modal-title">Add Assignment</span>' +
+                    '<button class="sch-modal-x" data-action="close-modal">\u2715</button>' +
                 '</div>' +
                 '<div class="sch-modal-body">' +
+                    '<div class="sch-section-label">SHIPMENT</div>' +
                     '<div class="sch-form-grid">' +
-                        '<label>Day<br><input type="date" id="sf-day" class="sch-inp"></label>' +
-                        '<label>PRO # (Alexei ID)<br><input type="text" id="sf-alexei" class="sch-inp" placeholder="PRO-10421"></label>' +
-                        '<label>TMS ID<br><input type="text" id="sf-tms" class="sch-inp" placeholder="TMS-8801"></label>' +
-                        '<label>PU Number<br><input type="text" id="sf-pu-num" class="sch-inp" placeholder="PU-4421"></label>' +
-                        '<label>PU Appt<br><input type="time" id="sf-pu-appt" class="sch-inp"></label>' +
-                        '<label>DE Appt<br><input type="time" id="sf-de-appt" class="sch-inp"></label>' +
-                        '<label>PU City<br><input type="text" id="sf-pu-city" class="sch-inp" placeholder="Chicago"></label>' +
-                        '<label>PU State<br><input type="text" id="sf-pu-state" class="sch-inp" placeholder="IL" maxlength="2"></label>' +
-                        '<label>DE City<br><input type="text" id="sf-de-city" class="sch-inp" placeholder="Milwaukee"></label>' +
-                        '<label>DE State<br><input type="text" id="sf-de-state" class="sch-inp" placeholder="WI" maxlength="2"></label>' +
-                        '<label>Status<br><select id="sf-status" class="sch-inp">' +
-                            '<option value="pending" selected>Pending</option>' +
-                            '<option value="dispatched">Dispatched</option>' +
-                            '<option value="delivered">Delivered</option>' +
-                            '<option value="cancelled">Cancelled</option>' +
-                        '</select></label>' +
-                        '<label>Notes<br><textarea id="sf-notes" class="sch-inp sch-textarea" rows="2"></textarea></label>' +
+                        '<label class="sch-full">Link to existing load<br>' +
+                            '<select id="sf-load" class="sch-inp">' + loadOpts + '</select>' +
+                        '</label>' +
+                        '<label>PRO #<br><input id="sf-pro" class="sch-inp" placeholder="PRO-10421"></label>' +
+                        '<label>TMS ID<br><input id="sf-tms" class="sch-inp" placeholder="TMS-8801"></label>' +
+                        '<label>PU #<br><input id="sf-punum" class="sch-inp" placeholder="PU-4421"></label>' +
+                        '<label>PU City<br><input id="sf-pucity" class="sch-inp" placeholder="Chicago"></label>' +
+                        '<label>PU State<br><input id="sf-pust" class="sch-inp" maxlength="2" placeholder="IL"></label>' +
+                        '<label>DE City<br><input id="sf-decity" class="sch-inp" placeholder="Milwaukee"></label>' +
+                        '<label>DE State<br><input id="sf-dest" class="sch-inp" maxlength="2" placeholder="WI"></label>' +
+                    '</div>' +
+                    '<div class="sch-section-label" style="margin-top:14px">ASSIGNMENT</div>' +
+                    '<div class="sch-form-grid">' +
+                        '<label>Date<br><input type="date" id="sf-date" class="sch-inp"></label>' +
+                        '<label>Driver<br><input id="sf-driver" class="sch-inp" placeholder="Alexei"></label>' +
+                        '<label>Seq #<br><input type="number" id="sf-seq" class="sch-inp" min="1" max="10" value="1"></label>' +
+                        '<label>Action Type<br>' +
+                            '<select id="sf-action" class="sch-inp">' +
+                                '<option value="PICKUP">PICKUP</option>' +
+                                '<option value="DELIVERY">DELIVERY</option>' +
+                                '<option value="PICKUP_AND_DELIVER">PICKUP &amp; DELIVER</option>' +
+                                '<option value="REPOSITION">REPOSITION</option>' +
+                                '<option value="OTHER">OTHER</option>' +
+                            '</select>' +
+                        '</label>' +
+                        '<label>Origin City<br><input id="sf-origcity" class="sch-inp" placeholder="Chicago"></label>' +
+                        '<label>Origin State<br><input id="sf-origst" class="sch-inp" maxlength="2" placeholder="IL"></label>' +
+                        '<label>Dest City<br><input id="sf-dstcity" class="sch-inp" placeholder="Milwaukee"></label>' +
+                        '<label>Dest State<br><input id="sf-dstst" class="sch-inp" maxlength="2" placeholder="WI"></label>' +
+                        '<label>PU Appt<br><input type="time" id="sf-puappt" class="sch-inp"></label>' +
+                        '<label>DE Appt<br><input type="time" id="sf-deappt" class="sch-inp"></label>' +
+                        '<label class="sch-full">Notes<br><textarea id="sf-notes" class="sch-inp sch-textarea" rows="2"></textarea></label>' +
                     '</div>' +
                 '</div>' +
-                '<div class="sch-modal-footer">' +
+                '<div class="sch-modal-ftr">' +
                     '<button class="sch-btn-cancel" data-action="close-modal">Cancel</button>' +
-                    '<button class="sch-btn-save" data-action="save-entry">Save Load</button>' +
+                    '<button class="sch-btn-save" data-action="save-asgn">Save</button>' +
                 '</div>' +
             '</div>' +
         '</div>';
     }
 
-    // ── Event Binding ─────────────────────────────────────────────────────────
-    function _bindEvents(container) {
-        container.addEventListener('click', function (e) {
-            var btn = e.target.closest('[data-action]');
-            if (!btn) return;
-            var action = btn.dataset.action;
-
-            if (action === 'prev-week') {
-                _loadWeek(_addDays(_weekStart, -7));
-            } else if (action === 'next-week') {
-                _loadWeek(_addDays(_weekStart, 7));
-            } else if (action === 'today-week') {
-                _loadWeek(_mondayOf(new Date()));
-            } else if (action === 'add-entry') {
-                _openModal(null, btn.dataset.day || null);
-            } else if (action === 'edit-entry') {
-                var entry = _entries.find(function (en) { return en.id === btn.dataset.id; });
-                if (entry) _openModal(entry, null);
-            } else if (action === 'del-entry') {
-                _deleteEntry(btn.dataset.id);
-            } else if (action === 'move-up') {
-                _moveRow(btn.dataset.id, -1);
-            } else if (action === 'move-down') {
-                _moveRow(btn.dataset.id, 1);
-            } else if (action === 'save-entry') {
-                _saveEntry();
-            } else if (action === 'close-modal') {
-                _closeModal();
+    // ── Event binding ─────────────────────────────────────────────────────────
+    function _bind(el) {
+        el.addEventListener('click', function (e) {
+            var b = e.target.closest('[data-action]');
+            if (!b) return;
+            switch (b.dataset.action) {
+                case 'prev-week':    _load(_addDays(_weekStart, -7)); break;
+                case 'next-week':    _load(_addDays(_weekStart, 7));  break;
+                case 'today-week':   _load(_mondayOf(new Date()));    break;
+                case 'add-asgn':     _openModal(null, b.dataset.day, b.dataset.driver); break;
+                case 'edit-asgn': {
+                    var a = _assignments.find(function (x) { return x.id === b.dataset.id; });
+                    if (a) _openModal(a, null, null);
+                    break;
+                }
+                case 'del-asgn':     _deleteAsgn(b.dataset.id); break;
+                case 'close-modal':  _closeModal(); break;
+                case 'save-asgn':    _saveAsgn(); break;
             }
         });
 
-        // Close modal on overlay click
-        var overlay = container.querySelector('#sch-modal');
-        if (overlay) {
-            overlay.addEventListener('click', function (e) {
-                if (e.target === overlay) _closeModal();
-            });
+        el.addEventListener('change', function (e) {
+            var t = e.target;
+            if (t.dataset.action === 'toggle-chk') {
+                _toggleChk(t.dataset.id, t.dataset.field, t.checked);
+            }
+            if (t.id === 'sf-load') {
+                _onLoadSelect(t.value);
+            }
+        });
+
+        var overlay = document.getElementById('sch-modal');
+        if (overlay) overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) _closeModal();
+        });
+    }
+
+    // ── Load selector auto-fill ───────────────────────────────────────────────
+    function _onLoadSelect(id) {
+        var set = function (eid, v) { var el = document.getElementById(eid); if (el) el.value = v || ''; };
+        if (!id) {
+            ['sf-pro','sf-tms','sf-punum','sf-pucity','sf-pust','sf-decity','sf-dest'].forEach(function (eid) { set(eid, ''); });
+            return;
+        }
+        var l = _loads.find(function (x) { return x.id === id; });
+        if (!l) return;
+        set('sf-pro',    l.alexeiId);
+        set('sf-tms',    l.tmsId);
+        set('sf-punum',  l.puNumber);
+        set('sf-pucity', l.puCity);
+        set('sf-pust',   l.puState);
+        set('sf-decity', l.deCity);
+        set('sf-dest',   l.deState);
+
+        // Auto-fill origin/dest from action type
+        var action  = (document.getElementById('sf-action') || {}).value || 'PICKUP';
+        var setIf   = function (eid, v) { var el = document.getElementById(eid); if (el && !el.value) el.value = v || ''; };
+        if (action === 'PICKUP' || action === 'PICKUP_AND_DELIVER') {
+            setIf('sf-origcity', l.puCity);  setIf('sf-origst', l.puState);
+        }
+        if (action === 'DELIVERY' || action === 'PICKUP_AND_DELIVER') {
+            setIf('sf-dstcity', l.deCity);   setIf('sf-dstst', l.deState);
         }
     }
 
-    // ── Modal open/close ──────────────────────────────────────────────────────
-    function _openModal(entry, defaultDay) {
-        _editingId = entry ? entry.id : null;
+    // ── Modal open / close ────────────────────────────────────────────────────
+    function _openModal(asgn, defaultDay, defaultDriver) {
+        _editAsgn   = asgn;
+        _editLoadId = asgn ? (asgn.loadId || null) : null;
 
         var modal = document.getElementById('sch-modal');
         if (!modal) return;
+        document.getElementById('sch-modal-title').textContent = asgn ? 'Edit Assignment' : 'Add Assignment';
 
-        document.getElementById('sch-modal-title').textContent = entry ? 'Edit Load' : 'Add Load';
+        var load = asgn && asgn.load ? asgn.load : null;
+        var set  = function (id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; };
 
-        var defDay = defaultDay || (entry && entry.dayDate) || _weekStart;
-        document.getElementById('sf-day').value       = defDay;
-        document.getElementById('sf-alexei').value    = entry ? (entry.alexeiId || '') : '';
-        document.getElementById('sf-tms').value       = entry ? (entry.tmsId || '') : '';
-        document.getElementById('sf-pu-num').value    = entry ? (entry.puNumber || '') : '';
-        document.getElementById('sf-pu-appt').value   = entry ? (entry.puAppt || '') : '';
-        document.getElementById('sf-de-appt').value   = entry ? (entry.deAppt || '') : '';
-        document.getElementById('sf-pu-city').value   = entry ? (entry.puCity || '') : '';
-        document.getElementById('sf-pu-state').value  = entry ? (entry.puState || '') : '';
-        document.getElementById('sf-de-city').value   = entry ? (entry.deCity || '') : '';
-        document.getElementById('sf-de-state').value  = entry ? (entry.deState || '') : '';
-        document.getElementById('sf-notes').value     = entry ? (entry.notes || '') : '';
+        // Load selector
+        var loadSel = document.getElementById('sf-load');
+        if (loadSel) loadSel.value = _editLoadId || '';
 
-        // Restore select default without wiping it
-        var statusEl = document.getElementById('sf-status');
-        var targetStatus = entry ? (entry.status || 'pending') : 'pending';
-        Array.from(statusEl.options).forEach(function (opt) {
-            opt.selected = (opt.value === targetStatus);
-        });
+        // Load fields
+        set('sf-pro',    load ? load.alexeiId : '');
+        set('sf-tms',    load ? load.tmsId    : '');
+        set('sf-punum',  load ? load.puNumber : '');
+        set('sf-pucity', load ? load.puCity   : '');
+        set('sf-pust',   load ? load.puState  : '');
+        set('sf-decity', load ? load.deCity   : '');
+        set('sf-dest',   load ? load.deState  : '');
+
+        // Assignment fields
+        set('sf-date',     asgn ? asgn.date        : (defaultDay    || _weekStart));
+        set('sf-driver',   asgn ? asgn.driverName  : (defaultDriver || ''));
+        set('sf-origcity', asgn ? asgn.originCity  : '');
+        set('sf-origst',   asgn ? asgn.originState : '');
+        set('sf-dstcity',  asgn ? asgn.destCity    : '');
+        set('sf-dstst',    asgn ? asgn.destState   : '');
+        set('sf-puappt',   asgn ? asgn.puAppt      : '');
+        set('sf-deappt',   asgn ? asgn.deAppt      : '');
+        set('sf-notes',    asgn ? asgn.notes       : '');
+
+        // Sequence number: auto-next for driver+day
+        var seqEl = document.getElementById('sf-seq');
+        if (seqEl) {
+            if (asgn) {
+                seqEl.value = asgn.sequenceNumber;
+            } else {
+                var date   = defaultDay || _weekStart;
+                var driver = (defaultDriver || '').trim();
+                var count  = _assignments.filter(function (a) {
+                    return a.date === date && (a.driverName || '').trim() === driver;
+                }).length;
+                seqEl.value = count + 1;
+            }
+        }
+
+        // Action type
+        var actionEl = document.getElementById('sf-action');
+        var target   = asgn ? (asgn.actionType || 'PICKUP') : 'PICKUP';
+        if (actionEl) Array.from(actionEl.options).forEach(function (o) { o.selected = o.value === target; });
 
         modal.style.display = 'flex';
-        document.getElementById('sf-alexei').focus();
+        setTimeout(function () { var df = document.getElementById('sf-driver'); if (df) df.focus(); }, 60);
     }
 
     function _closeModal() {
-        var modal = document.getElementById('sch-modal');
-        if (modal) modal.style.display = 'none';
-        _editingId = null;
+        var m = document.getElementById('sch-modal');
+        if (m) m.style.display = 'none';
+        _editAsgn = null; _editLoadId = null;
     }
 
-    // ── Save / Delete / Reorder ───────────────────────────────────────────────
-    function _saveEntry() {
-        var dayDate = document.getElementById('sf-day').value.trim();
-        if (!dayDate) { alert('Please select a day.'); return; }
+    // ── Save ──────────────────────────────────────────────────────────────────
+    function _saveAsgn() {
+        var date = (document.getElementById('sf-date') || {}).value || '';
+        if (!date) { alert('Please select a date.'); return; }
 
-        // Ensure day is within the displayed week
-        var weekDays = _weekDays(_weekStart);
-        if (weekDays.indexOf(dayDate) < 0) {
-            alert('The selected day is outside the current week (' + _weekStart + ' to ' + _addDays(_weekStart, 4) + '). Please choose a day within the visible week.');
+        var weekDays = _weekDays();
+        if (weekDays.indexOf(date) < 0) {
+            alert('Date must be within the current week (' + _weekStart + ' \u2013 ' + _addDays(_weekStart, 4) + ').');
             return;
         }
 
-        var body = {
-            dayDate:   dayDate,
-            weekStart: _weekStart,
-            alexeiId:  document.getElementById('sf-alexei').value.trim(),
-            tmsId:     document.getElementById('sf-tms').value.trim(),
-            puNumber:  document.getElementById('sf-pu-num').value.trim(),
-            puAppt:    document.getElementById('sf-pu-appt').value.trim(),
-            deAppt:    document.getElementById('sf-de-appt').value.trim(),
-            puCity:    document.getElementById('sf-pu-city').value.trim(),
-            puState:   document.getElementById('sf-pu-state').value.trim().toUpperCase(),
-            deCity:    document.getElementById('sf-de-city').value.trim(),
-            deState:   document.getElementById('sf-de-state').value.trim().toUpperCase(),
-            status:    document.getElementById('sf-status').value,
-            notes:     document.getElementById('sf-notes').value.trim(),
+        var saveBtn = document.querySelector('[data-action="save-asgn"]');
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
+
+        var g = function (id) { return (document.getElementById(id) || {}).value || ''; };
+        var loadSel = document.getElementById('sf-load');
+        var selectedLoadId = loadSel ? loadSel.value : '';
+
+        var loadBody = {
+            alexeiId: g('sf-pro'),
+            tmsId:    g('sf-tms'),
+            puNumber: g('sf-punum'),
+            puCity:   g('sf-pucity'),
+            puState:  g('sf-pust').toUpperCase(),
+            deCity:   g('sf-decity'),
+            deState:  g('sf-dest').toUpperCase(),
+        };
+        var asgnBody = {
+            date:           date,
+            weekStart:      _weekStart,
+            driverName:     g('sf-driver').trim(),
+            sequenceNumber: parseInt(g('sf-seq') || '1', 10),
+            actionType:     g('sf-action') || 'PICKUP',
+            originCity:     g('sf-origcity'),
+            originState:    g('sf-origst').toUpperCase(),
+            destCity:       g('sf-dstcity'),
+            destState:      g('sf-dstst').toUpperCase(),
+            puAppt:         g('sf-puappt'),
+            deAppt:         g('sf-deappt'),
+            notes:          g('sf-notes'),
         };
 
-        var saveBtn = document.querySelector('[data-action="save-entry"]');
-        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-
-        var req;
-        if (_editingId) {
-            req = _api('PUT', '/api/ivan/schedule/entries/' + _editingId, body);
+        var loadP;
+        if (selectedLoadId) {
+            loadP = _api('PUT', '/api/ivan/loads/' + selectedLoadId, loadBody)
+                        .then(function () { return selectedLoadId; });
+        } else if (_editAsgn && _editAsgn.loadId) {
+            loadP = _api('PUT', '/api/ivan/loads/' + _editAsgn.loadId, loadBody)
+                        .then(function () { return _editAsgn.loadId; });
         } else {
-            req = _api('POST', '/api/ivan/schedule/entries', body);
+            loadP = _api('POST', '/api/ivan/loads', loadBody)
+                        .then(function (r) { return r.id; });
         }
 
-        req.then(function () {
+        loadP.then(function (loadId) {
+            asgnBody.loadId = loadId;
+            return _editAsgn
+                ? _api('PUT',  '/api/ivan/schedule/assignments/' + _editAsgn.id, asgnBody)
+                : _api('POST', '/api/ivan/schedule/assignments', asgnBody);
+        }).then(function () {
             _closeModal();
-            _loadWeek(_weekStart);
+            _load(_weekStart);
         }).catch(function (err) {
             alert('Save failed: ' + err.message);
-            if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Load'; }
+            if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
         });
     }
 
-    function _deleteEntry(id) {
-        if (!confirm('Delete this load? This cannot be undone.')) return;
-        _api('DELETE', '/api/ivan/schedule/entries/' + id).then(function () {
-            _loadWeek(_weekStart);
-        }).catch(function (err) {
-            alert('Delete failed: ' + err.message);
-        });
+    // ── Delete ────────────────────────────────────────────────────────────────
+    function _deleteAsgn(id) {
+        if (!confirm('Delete this assignment? This cannot be undone.')) return;
+        _api('DELETE', '/api/ivan/schedule/assignments/' + id).then(function () {
+            _load(_weekStart);
+        }).catch(function (err) { alert('Delete failed: ' + err.message); });
     }
 
-    function _moveRow(id, direction) {
-        // Find the entry and its day peers
-        var entry = _entries.find(function (e) { return e.id === id; });
-        if (!entry) return;
+    // ── Checkbox toggle (optimistic) ──────────────────────────────────────────
+    function _toggleChk(id, field, checked) {
+        var a = _assignments.find(function (x) { return x.id === id; });
+        if (!a) return;
 
-        var peers = _entries.filter(function (e) { return e.dayDate === entry.dayDate; });
-        peers.sort(function (a, b) { return a.rowOrder - b.rowOrder; });
+        var prev = a[field];
+        a[field] = checked;
+        a.isFullyComplete = _complete(a);
 
-        var idx = peers.findIndex(function (e) { return e.id === id; });
-        var swapIdx = idx + direction;
-        if (swapIdx < 0 || swapIdx >= peers.length) return;
-
-        // Swap row orders
-        var tmp = peers[idx].rowOrder;
-        peers[idx].rowOrder = peers[swapIdx].rowOrder;
-        peers[swapIdx].rowOrder = tmp;
-
-        // If same rowOrder, give unique values
-        if (peers[idx].rowOrder === peers[swapIdx].rowOrder) {
-            peers[swapIdx].rowOrder = peers[idx].rowOrder + (direction > 0 ? 1 : -1);
+        var row = document.querySelector('.sch-row[data-id="' + id + '"]');
+        if (row) {
+            row.classList.toggle('sch-row-done', a.isFullyComplete);
+            var dc = row.querySelector('.sch-c-done');
+            if (dc) dc.innerHTML = a.isFullyComplete
+                ? '<span class="sch-done-icon" title="Fully complete">\u2713</span>' : '';
         }
 
-        // Reassign 0-based
-        peers.sort(function (a, b) { return a.rowOrder - b.rowOrder; });
-        peers.forEach(function (e, i) { e.rowOrder = i; });
-
-        var payload = peers.map(function (e) {
-            return { id: e.id, dayDate: e.dayDate, rowOrder: e.rowOrder };
-        });
-
-        _api('POST', '/api/ivan/schedule/entries/reorder', { entries: payload }).then(function () {
-            _loadWeek(_weekStart);
-        }).catch(function (err) {
-            alert('Reorder failed: ' + err.message);
-            _render(); // revert visual
+        var patch = {};
+        patch[field] = checked;
+        _api('PUT', '/api/ivan/schedule/assignments/' + id, patch).catch(function (err) {
+            a[field] = prev;
+            a.isFullyComplete = _complete(a);
+            alert('Save failed: ' + err.message);
+            _render();
         });
     }
 
-    // ── Public API ────────────────────────────────────────────────────────────
+    // ── Public ────────────────────────────────────────────────────────────────
     function mountSchedule(containerId) {
-        _containerId = containerId;
-        var today    = new Date();
-        var mon      = _mondayOf(today);
-        _loadWeek(mon);
+        _cid = containerId;
+        _load(_mondayOf(new Date()));
     }
 
     return { mountSchedule: mountSchedule };

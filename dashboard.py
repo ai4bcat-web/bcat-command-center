@@ -127,6 +127,32 @@ if config.DATABASE_URL:
     app.cli.add_command(reset_password)
     app.cli.add_command(seed_schedule)
 
+    # ── Auto-migrate schedule columns added after initial deploy ──────────────
+    # Runs once at startup; safe to re-run (checks columns before altering).
+    def _auto_migrate_schedule():
+        try:
+            from sqlalchemy import inspect as _si, text as _st
+            with app.app_context():
+                insp = _si(db.engine)
+                if not insp.has_table('ivan_schedule_assignments'):
+                    return
+                cols = {c['name'] for c in insp.get_columns('ivan_schedule_assignments')}
+                with db.engine.begin() as conn:
+                    if 'is_complete' not in cols:
+                        conn.execute(_st(
+                            'ALTER TABLE ivan_schedule_assignments'
+                            ' ADD COLUMN is_complete BOOLEAN DEFAULT FALSE'
+                        ))
+                    if 'appt_status' not in cols:
+                        conn.execute(_st(
+                            "ALTER TABLE ivan_schedule_assignments"
+                            " ADD COLUMN appt_status VARCHAR(20) DEFAULT 'NEED'"
+                        ))
+        except Exception as _me:
+            _log.warning('Schedule column auto-migrate skipped: %s', _me)
+
+    _auto_migrate_schedule()
+
 _DB_ENABLED = bool(config.DATABASE_URL)
 
 finance_agent    = FinanceAgent()

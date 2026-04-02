@@ -95,7 +95,18 @@ var IvanScheduleApp = (function () {
         var opts = { method: method, headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _csrf() } };
         if (body !== undefined) opts.body = JSON.stringify(body);
         return fetch(path, opts).then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || r.statusText); });
+            var ct = r.headers.get('content-type') || '';
+            if (!r.ok) {
+                // Try JSON error body; fall back to status text if response is HTML
+                if (ct.indexOf('application/json') >= 0) {
+                    return r.json().then(function (e) { throw new Error(e.error || r.statusText); });
+                }
+                throw new Error('HTTP ' + r.status + ' ' + r.statusText +
+                    (r.status === 302 || r.status === 401 ? ' (session expired — please refresh)' : ''));
+            }
+            if (ct.indexOf('application/json') < 0) {
+                throw new Error('Server returned non-JSON response (HTTP ' + r.status + '). Check server logs.');
+            }
             return r.json();
         });
     }

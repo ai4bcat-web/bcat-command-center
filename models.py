@@ -358,30 +358,39 @@ class IvanLoad(db.Model):
     pu_state   = db.Column(db.String(10),  default='')
     de_city    = db.Column(db.String(100), default='')
     de_state   = db.Column(db.String(10),  default='')
-    pu_appt    = db.Column(db.String(20),  default='')
-    de_appt    = db.Column(db.String(20),  default='')
-    notes      = db.Column(db.Text,        default='')
-    created_at = db.Column(db.DateTime,    default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime,    default=datetime.utcnow, onupdate=datetime.utcnow)
+    pu_appt      = db.Column(db.String(20),  default='')
+    de_appt      = db.Column(db.String(20),  default='')
+    notes        = db.Column(db.Text,        default='')
+    # Round 9 additions
+    pick_count   = db.Column(db.Integer,     default=1)
+    drop_count   = db.Column(db.Integer,     default=1)
+    load_type    = db.Column(db.String(50),  default='')   # E2OPEN | BCAT BROKER | IVAN BROKER | IVAN CUSTOMER
+    carrier_name = db.Column(db.String(200), default='')
+    created_at   = db.Column(db.DateTime,    default=datetime.utcnow)
+    updated_at   = db.Column(db.DateTime,    default=datetime.utcnow, onupdate=datetime.utcnow)
 
     assignments = db.relationship('IvanScheduleAssignment', backref='load',
                                   lazy='dynamic', cascade='all, delete-orphan')
 
     def to_dict(self):
         return {
-            'id':        self.id,
-            'alexeiId':  self.alexei_id  or '',
-            'tmsId':     self.tms_id     or '',
-            'puNumber':  self.pu_number  or '',
-            'puCity':    self.pu_city    or '',
-            'puState':   self.pu_state   or '',
-            'deCity':    self.de_city    or '',
-            'deState':   self.de_state   or '',
-            'puAppt':    self.pu_appt    or '',
-            'deAppt':    self.de_appt    or '',
-            'notes':     self.notes      or '',
-            'createdAt': self.created_at.isoformat() if self.created_at else '',
-            'updatedAt': self.updated_at.isoformat() if self.updated_at else '',
+            'id':          self.id,
+            'alexeiId':    self.alexei_id    or '',
+            'tmsId':       self.tms_id       or '',
+            'puNumber':    self.pu_number    or '',
+            'puCity':      self.pu_city      or '',
+            'puState':     self.pu_state     or '',
+            'deCity':      self.de_city      or '',
+            'deState':     self.de_state     or '',
+            'puAppt':      self.pu_appt      or '',
+            'deAppt':      self.de_appt      or '',
+            'notes':       self.notes        or '',
+            'pickCount':   self.pick_count   if self.pick_count   is not None else 1,
+            'dropCount':   self.drop_count   if self.drop_count   is not None else 1,
+            'loadType':    self.load_type    or '',
+            'carrierName': self.carrier_name or '',
+            'createdAt':   self.created_at.isoformat() if self.created_at else '',
+            'updatedAt':   self.updated_at.isoformat() if self.updated_at else '',
         }
 
 
@@ -429,6 +438,14 @@ class IvanScheduleAssignment(db.Model):
     # Manual completion flag — set explicitly by the dispatcher
     is_complete          = db.Column(db.Boolean,  default=False)
     completed_at         = db.Column(db.DateTime, nullable=True)
+    # Round 9 additions
+    e2open_closed        = db.Column(db.Boolean,    default=False)
+    pu_appt_type         = db.Column(db.String(10), default='APPT')  # APPT | FCFS
+    pu_fcfs_start        = db.Column(db.String(20), default='')
+    pu_fcfs_end          = db.Column(db.String(20), default='')
+    de_appt_type         = db.Column(db.String(10), default='APPT')  # APPT | FCFS
+    de_fcfs_start        = db.Column(db.String(20), default='')
+    de_fcfs_end          = db.Column(db.String(20), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -456,6 +473,14 @@ class IvanScheduleAssignment(db.Model):
             'notes':             self.notes             or '',
             'isComplete':        bool(self.is_complete),
             'completedAt':       self.completed_at.isoformat() if self.completed_at else '',
+            # Round 9
+            'e2openClosed':      bool(self.e2open_closed),
+            'puApptType':        self.pu_appt_type  or 'APPT',
+            'puFcfsStart':       self.pu_fcfs_start or '',
+            'puFcfsEnd':         self.pu_fcfs_end   or '',
+            'deApptType':        self.de_appt_type  or 'APPT',
+            'deFcfsStart':       self.de_fcfs_start or '',
+            'deFcfsEnd':         self.de_fcfs_end   or '',
             'load':              self.load.to_dict() if self.load else None,
             'createdAt': self.created_at.isoformat() if self.created_at else '',
             'updatedAt': self.updated_at.isoformat() if self.updated_at else '',

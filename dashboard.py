@@ -134,26 +134,49 @@ if config.DATABASE_URL:
             from sqlalchemy import inspect as _si, text as _st
             with app.app_context():
                 insp = _si(db.engine)
-                if not insp.has_table('ivan_schedule_assignments'):
-                    return
-                cols = {c['name'] for c in insp.get_columns('ivan_schedule_assignments')}
-                with db.engine.begin() as conn:
-                    _adds = [
-                        ('is_complete',       'BOOLEAN DEFAULT FALSE'),
-                        ('appt_status',       "VARCHAR(20) DEFAULT 'NEED'"),
-                        ('pu_location_name',  "VARCHAR(200) DEFAULT ''"),
-                        ('de_location_name',  "VARCHAR(200) DEFAULT ''"),
-                        ('driver_start_city', "VARCHAR(100) DEFAULT ''"),
-                        ('driver_start_state',"VARCHAR(10)  DEFAULT ''"),
-                        ('pu_appt_status',    "VARCHAR(20) DEFAULT 'NEED'"),
-                        ('de_appt_status',    "VARCHAR(20) DEFAULT 'NEED'"),
-                        ('completed_at',      'TIMESTAMP NULL'),
-                    ]
-                    for col, defn in _adds:
-                        if col not in cols:
-                            conn.execute(_st(
-                                f'ALTER TABLE ivan_schedule_assignments ADD COLUMN {col} {defn}'
-                            ))
+                # ── ivan_schedule_assignments ─────────────────────────────────
+                if insp.has_table('ivan_schedule_assignments'):
+                    cols = {c['name'] for c in insp.get_columns('ivan_schedule_assignments')}
+                    with db.engine.begin() as conn:
+                        _adds = [
+                            ('is_complete',       'BOOLEAN DEFAULT FALSE'),
+                            ('appt_status',       "VARCHAR(20) DEFAULT 'NEED'"),
+                            ('pu_location_name',  "VARCHAR(200) DEFAULT ''"),
+                            ('de_location_name',  "VARCHAR(200) DEFAULT ''"),
+                            ('driver_start_city', "VARCHAR(100) DEFAULT ''"),
+                            ('driver_start_state',"VARCHAR(10)  DEFAULT ''"),
+                            ('pu_appt_status',    "VARCHAR(20) DEFAULT 'NEED'"),
+                            ('de_appt_status',    "VARCHAR(20) DEFAULT 'NEED'"),
+                            ('completed_at',      'TIMESTAMP NULL'),
+                            # Round 9
+                            ('e2open_closed',     'BOOLEAN DEFAULT FALSE'),
+                            ('pu_appt_type',      "VARCHAR(10) DEFAULT 'APPT'"),
+                            ('pu_fcfs_start',     "VARCHAR(20) DEFAULT ''"),
+                            ('pu_fcfs_end',       "VARCHAR(20) DEFAULT ''"),
+                            ('de_appt_type',      "VARCHAR(10) DEFAULT 'APPT'"),
+                            ('de_fcfs_start',     "VARCHAR(20) DEFAULT ''"),
+                            ('de_fcfs_end',       "VARCHAR(20) DEFAULT ''"),
+                        ]
+                        for col, defn in _adds:
+                            if col not in cols:
+                                conn.execute(_st(
+                                    f'ALTER TABLE ivan_schedule_assignments ADD COLUMN {col} {defn}'
+                                ))
+                # ── ivan_loads ───────────────────────────────────────────────
+                if insp.has_table('ivan_loads'):
+                    lcols = {c['name'] for c in insp.get_columns('ivan_loads')}
+                    with db.engine.begin() as conn:
+                        _ladd = [
+                            ('pick_count',   'INTEGER DEFAULT 1'),
+                            ('drop_count',   'INTEGER DEFAULT 1'),
+                            ('load_type',    "VARCHAR(50)  DEFAULT ''"),
+                            ('carrier_name', "VARCHAR(200) DEFAULT ''"),
+                        ]
+                        for col, defn in _ladd:
+                            if col not in lcols:
+                                conn.execute(_st(
+                                    f'ALTER TABLE ivan_loads ADD COLUMN {col} {defn}'
+                                ))
         except Exception as _me:
             _log.warning('Schedule column auto-migrate skipped: %s', _me)
 
@@ -1302,17 +1325,21 @@ def ivan_load_create():
     from extensions import db as _db
     d = request.get_json() or {}
     load = IvanLoad(
-        id        = d.get('id') or ('load-' + _uuid.uuid4().hex[:8]),
-        alexei_id = d.get('alexeiId', ''),
-        tms_id    = d.get('tmsId', ''),
-        pu_number = d.get('puNumber', ''),
-        pu_city   = d.get('puCity', ''),
-        pu_state  = (d.get('puState') or '').upper(),
-        de_city   = d.get('deCity', ''),
-        de_state  = (d.get('deState') or '').upper(),
-        pu_appt   = d.get('puAppt', ''),
-        de_appt   = d.get('deAppt', ''),
-        notes     = d.get('notes', ''),
+        id           = d.get('id') or ('load-' + _uuid.uuid4().hex[:8]),
+        alexei_id    = d.get('alexeiId', ''),
+        tms_id       = d.get('tmsId', ''),
+        pu_number    = d.get('puNumber', ''),
+        pu_city      = d.get('puCity', ''),
+        pu_state     = (d.get('puState') or '').upper(),
+        de_city      = d.get('deCity', ''),
+        de_state     = (d.get('deState') or '').upper(),
+        pu_appt      = d.get('puAppt', ''),
+        de_appt      = d.get('deAppt', ''),
+        notes        = d.get('notes', ''),
+        pick_count   = int(d.get('pickCount', 1) or 1),
+        drop_count   = int(d.get('dropCount', 1) or 1),
+        load_type    = d.get('loadType', ''),
+        carrier_name = d.get('carrierName', ''),
     )
     _db.session.add(load)
     _db.session.commit()
@@ -1326,16 +1353,20 @@ def ivan_load_update(lid):
     from extensions import db as _db
     load = IvanLoad.query.get_or_404(lid)
     d = request.get_json() or {}
-    if 'alexeiId' in d: load.alexei_id = d['alexeiId']
-    if 'tmsId'    in d: load.tms_id    = d['tmsId']
-    if 'puNumber' in d: load.pu_number = d['puNumber']
-    if 'puCity'   in d: load.pu_city   = d['puCity']
-    if 'puState'  in d: load.pu_state  = (d['puState'] or '').upper()
-    if 'deCity'   in d: load.de_city   = d['deCity']
-    if 'deState'  in d: load.de_state  = (d['deState'] or '').upper()
-    if 'puAppt'   in d: load.pu_appt   = d['puAppt']
-    if 'deAppt'   in d: load.de_appt   = d['deAppt']
-    if 'notes'    in d: load.notes     = d['notes']
+    if 'alexeiId'    in d: load.alexei_id    = d['alexeiId']
+    if 'tmsId'       in d: load.tms_id       = d['tmsId']
+    if 'puNumber'    in d: load.pu_number    = d['puNumber']
+    if 'puCity'      in d: load.pu_city      = d['puCity']
+    if 'puState'     in d: load.pu_state     = (d['puState'] or '').upper()
+    if 'deCity'      in d: load.de_city      = d['deCity']
+    if 'deState'     in d: load.de_state     = (d['deState'] or '').upper()
+    if 'puAppt'      in d: load.pu_appt      = d['puAppt']
+    if 'deAppt'      in d: load.de_appt      = d['deAppt']
+    if 'notes'       in d: load.notes        = d['notes']
+    if 'pickCount'   in d: load.pick_count   = int(d['pickCount']   or 1)
+    if 'dropCount'   in d: load.drop_count   = int(d['dropCount']   or 1)
+    if 'loadType'    in d: load.load_type    = d['loadType']    or ''
+    if 'carrierName' in d: load.carrier_name = d['carrierName'] or ''
     _db.session.commit()
     return jsonify(load.to_dict())
 
@@ -1377,6 +1408,14 @@ def ivan_assignment_create():
         pu_appt_status   = d.get('puApptStatus', 'NEED'),
         de_appt_status   = d.get('deApptStatus', 'NEED'),
         notes            = d.get('notes', ''),
+        # Round 9
+        e2open_closed    = bool(d.get('e2openClosed', False)),
+        pu_appt_type     = d.get('puApptType', 'APPT') or 'APPT',
+        pu_fcfs_start    = d.get('puFcfsStart', ''),
+        pu_fcfs_end      = d.get('puFcfsEnd', ''),
+        de_appt_type     = d.get('deApptType', 'APPT') or 'APPT',
+        de_fcfs_start    = d.get('deFcfsStart', ''),
+        de_fcfs_end      = d.get('deFcfsEnd', ''),
     )
     _db.session.add(a)
     _db.session.commit()
@@ -1418,6 +1457,14 @@ def ivan_assignment_update(aid):
             a.completed_at = _dt.utcnow()
         elif not a.is_complete:
             a.completed_at = None
+    # Round 9
+    if 'e2openClosed' in d: a.e2open_closed = bool(d['e2openClosed'])
+    if 'puApptType'   in d: a.pu_appt_type  = d['puApptType'] or 'APPT'
+    if 'puFcfsStart'  in d: a.pu_fcfs_start = d['puFcfsStart'] or ''
+    if 'puFcfsEnd'    in d: a.pu_fcfs_end   = d['puFcfsEnd']   or ''
+    if 'deApptType'   in d: a.de_appt_type  = d['deApptType'] or 'APPT'
+    if 'deFcfsStart'  in d: a.de_fcfs_start = d['deFcfsStart'] or ''
+    if 'deFcfsEnd'    in d: a.de_fcfs_end   = d['deFcfsEnd']   or ''
     _db.session.commit()
     after = a.to_dict()
     _write_audit('assignment', a.id, 'update', before=before, after=after,
@@ -1480,6 +1527,10 @@ def ivan_schedule_audit_revert(log_id):
                     ('puLocationName','pu_location_name'), ('deLocationName','de_location_name'),
                     ('puApptStatus','pu_appt_status'), ('deApptStatus','de_appt_status'),
                     ('notes','notes'), ('isComplete','is_complete'),
+                    ('e2openClosed','e2open_closed'), ('puApptType','pu_appt_type'),
+                    ('puFcfsStart','pu_fcfs_start'), ('puFcfsEnd','pu_fcfs_end'),
+                    ('deApptType','de_appt_type'), ('deFcfsStart','de_fcfs_start'),
+                    ('deFcfsEnd','de_fcfs_end'),
                 ]:
                     if col in before:
                         setattr(a, attr, before[col])
@@ -1494,25 +1545,32 @@ def ivan_schedule_audit_revert(log_id):
             elif record.action == 'delete':
                 if not IvanScheduleAssignment.query.get(before.get('id')):
                     a = IvanScheduleAssignment(
-                        id              = before.get('id', 'asgn-reverted'),
-                        load_id         = before.get('loadId') or None,
-                        week_start      = before.get('weekStart', ''),
-                        date            = before.get('date', ''),
-                        driver_name     = before.get('driverName', ''),
-                        sequence_number = before.get('sequenceNumber', 1),
-                        action_type     = before.get('actionType', 'PICKUP'),
-                        origin_city     = before.get('originCity', ''),
-                        origin_state    = before.get('originState', ''),
-                        dest_city       = before.get('destCity', ''),
-                        dest_state      = before.get('destState', ''),
-                        pu_appt         = before.get('puAppt', ''),
-                        de_appt         = before.get('deAppt', ''),
+                        id               = before.get('id', 'asgn-reverted'),
+                        load_id          = before.get('loadId') or None,
+                        week_start       = before.get('weekStart', ''),
+                        date             = before.get('date', ''),
+                        driver_name      = before.get('driverName', ''),
+                        sequence_number  = before.get('sequenceNumber', 1),
+                        action_type      = before.get('actionType', 'PICKUP'),
+                        origin_city      = before.get('originCity', ''),
+                        origin_state     = before.get('originState', ''),
+                        dest_city        = before.get('destCity', ''),
+                        dest_state       = before.get('destState', ''),
+                        pu_appt          = before.get('puAppt', ''),
+                        de_appt          = before.get('deAppt', ''),
                         pu_location_name = before.get('puLocationName', ''),
                         de_location_name = before.get('deLocationName', ''),
-                        pu_appt_status  = before.get('puApptStatus', 'NEED'),
-                        de_appt_status  = before.get('deApptStatus', 'NEED'),
-                        notes           = before.get('notes', ''),
-                        is_complete     = before.get('isComplete', False),
+                        pu_appt_status   = before.get('puApptStatus', 'NEED'),
+                        de_appt_status   = before.get('deApptStatus', 'NEED'),
+                        notes            = before.get('notes', ''),
+                        is_complete      = before.get('isComplete', False),
+                        e2open_closed    = before.get('e2openClosed', False),
+                        pu_appt_type     = before.get('puApptType', 'APPT') or 'APPT',
+                        pu_fcfs_start    = before.get('puFcfsStart', ''),
+                        pu_fcfs_end      = before.get('puFcfsEnd', ''),
+                        de_appt_type     = before.get('deApptType', 'APPT') or 'APPT',
+                        de_fcfs_start    = before.get('deFcfsStart', ''),
+                        de_fcfs_end      = before.get('deFcfsEnd', ''),
                     )
                     _db.session.add(a)
                     _db.session.commit()

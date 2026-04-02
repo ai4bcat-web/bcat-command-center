@@ -1,29 +1,17 @@
 /**
- * ivan_schedule.js — Multi-driver Dispatch Board for Ivan Cartage
+ * ivan_schedule.js — Calendar-style Dispatch Board for Ivan Cartage
  * IvanScheduleApp.mountSchedule(containerId)
  *
- * Concept: one IvanLoad may span multiple driver assignments across days.
- * Board groups by day → driver → sequence number.
- * Inline checkboxes update immediately via optimistic UI.
- * Rows turn green when all 6 workflow steps are complete.
- *
- * API:
- *   GET  /api/ivan/schedule?weekStart=         → {assignments, loads}
- *   POST /api/ivan/loads                        → create load
- *   PUT  /api/ivan/loads/:id                   → update load
- *   POST /api/ivan/schedule/assignments         → create assignment
- *   PUT  /api/ivan/schedule/assignments/:id    → update / toggle checkboxes
- *   DELETE /api/ivan/schedule/assignments/:id  → delete
+ * Layout: 5-column weekly calendar (Mon–Fri)
+ * Each column: driver sections → assignment cards with inline edit
+ * Driver color: deterministic hash of driver name (8-color palette)
+ * Load chip: deterministic hash of loadId, shows PRO# badge
  */
 var IvanScheduleApp = (function () {
     'use strict';
 
-    // ── Base terminal ────────────────────────────────────────────────────────
-    // Pleasant Prairie, WI — all driver days start and end here
-    var BASE = [43.1006, -87.8751];
+    var BASE = [43.1006, -87.8751]; // Pleasant Prairie, WI
 
-    // ── City coordinates (lat, lon) ──────────────────────────────────────────
-    // Integration point: replace _latLon() with a geocoding API for full coverage
     var COORDS = {
         'chicago il':          [41.8781, -87.6298],
         'chicago heights il':  [41.5061, -87.6373],
@@ -48,31 +36,46 @@ var IvanScheduleApp = (function () {
         'bolingbrook il':      [41.6986, -88.0684],
     };
 
-    // ── Action display config ────────────────────────────────────────────────
     var ACTION_LABEL = {
         PICKUP:             'PICKUP',
         DELIVERY:           'DELIVERY',
         PICKUP_AND_DELIVER: 'P&D',
-        REPOSITION:         'REPOSITION',
+        REPOSITION:         'REPO',
         OTHER:              'OTHER',
     };
     var ACTION_CSS = {
-        PICKUP:             'sch-badge-pickup',
-        DELIVERY:           'sch-badge-delivery',
-        PICKUP_AND_DELIVER: 'sch-badge-pad',
-        REPOSITION:         'sch-badge-reposition',
-        OTHER:              'sch-badge-other',
+        PICKUP:             'sc-badge-pickup',
+        DELIVERY:           'sc-badge-delivery',
+        PICKUP_AND_DELIVER: 'sc-badge-pad',
+        REPOSITION:         'sc-badge-repo',
+        OTHER:              'sc-badge-other',
     };
 
-    // ── State ────────────────────────────────────────────────────────────────
-    var _cid         = null;   // container element ID
-    var _weekStart   = null;   // ISO Monday string
-    var _assignments = [];     // flat array from API
-    var _loads       = [];     // all loads (for dropdown)
-    var _editAsgn    = null;   // assignment being edited (null = new)
-    var _editLoadId  = null;   // load being referenced in open modal
+    // 8 driver colors — border, dark bg tint, text
+    var DRIVER_COLORS = [
+        { b: '#3b82f6', bg: '#0c1e36', t: '#93c5fd' },
+        { b: '#f59e0b', bg: '#1f1200', t: '#fcd34d' },
+        { b: '#10b981', bg: '#021f17', t: '#6ee7b7' },
+        { b: '#f43f5e', bg: '#200811', t: '#fda4af' },
+        { b: '#a78bfa', bg: '#150928', t: '#c4b5fd' },
+        { b: '#22d3ee', bg: '#081e26', t: '#67e8f9' },
+        { b: '#fb923c', bg: '#1e0a02', t: '#fdba74' },
+        { b: '#84cc16', bg: '#0d1a02', t: '#bef264' },
+    ];
 
-    // ── CSRF / fetch helper ──────────────────────────────────────────────────
+    // 10 load chip colors
+    var LOAD_COLORS = [
+        '#38bdf8', '#fbbf24', '#34d399', '#f87171', '#c084fc',
+        '#22d3ee', '#fb923c', '#a3e635', '#f472b6', '#818cf8',
+    ];
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    var _cid       = null;
+    var _weekStart = null;
+    var _asgns     = [];
+    var _loads     = [];
+
+    // ── Fetch / CSRF ──────────────────────────────────────────────────────────
     function _csrf() {
         var m = document.querySelector('meta[name="csrf-token"]');
         return m ? m.getAttribute('content') : '';
@@ -86,532 +89,464 @@ var IvanScheduleApp = (function () {
         });
     }
 
-    // ── Week helpers ─────────────────────────────────────────────────────────
-    function _isoDate(d) {
+    // ── Date helpers ──────────────────────────────────────────────────────────
+    function _iso(d) {
         return d.getFullYear() + '-' +
                String(d.getMonth() + 1).padStart(2, '0') + '-' +
                String(d.getDate()).padStart(2, '0');
     }
     function _mondayOf(d) {
-        var dt = new Date(d);
-        var wd = dt.getDay();
+        var dt = new Date(d), wd = dt.getDay();
         dt.setDate(dt.getDate() + (wd === 0 ? -6 : 1 - wd));
-        return _isoDate(dt);
+        return _iso(dt);
     }
     function _addDays(iso, n) {
         var d = new Date(iso + 'T00:00:00');
         d.setDate(d.getDate() + n);
-        return _isoDate(d);
+        return _iso(d);
     }
-    function _weekDays() {
-        return [0, 1, 2, 3, 4].map(function (i) { return _addDays(_weekStart, i); });
-    }
-    function _fmtWeekLabel() {
+    function _weekDays() { return [0,1,2,3,4].map(function(i){ return _addDays(_weekStart,i); }); }
+    function _fmtWeek() {
         var d = new Date(_weekStart + 'T00:00:00');
         var e = new Date(_weekStart + 'T00:00:00'); e.setDate(e.getDate() + 6);
         var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         return 'Week of ' + M[d.getMonth()] + ' ' + d.getDate() +
                ' \u2013 ' + M[e.getMonth()] + ' ' + e.getDate() + ', ' + e.getFullYear();
     }
-    function _fmtDay(iso) {
-        var d = new Date(iso + 'T00:00:00');
-        var D = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-        var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        return D[d.getDay()] + ', ' + M[d.getMonth()] + ' ' + d.getDate();
+    function _fmtColHdr(iso) {
+        var d   = new Date(iso + 'T00:00:00');
+        var DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return { day: DAY[d.getDay()], date: MON[d.getMonth()] + ' ' + d.getDate() };
     }
 
-    // ── Deadhead calculator ──────────────────────────────────────────────────
-    function _latLon(city, state) {
+    // ── Deadhead ──────────────────────────────────────────────────────────────
+    function _ll(city, state) {
         if (!city) return null;
-        var k = ((city || '') + ' ' + (state || '')).toLowerCase().trim().replace(/\s+/g, ' ');
-        return COORDS[k] || COORDS[city.toLowerCase().trim()] || null;
+        var k = ((city||'') + ' ' + (state||'')).toLowerCase().trim().replace(/\s+/g,' ');
+        return COORDS[k] || COORDS[(city||'').toLowerCase().trim()] || null;
     }
-    function _haversineKm(a, b) {
-        var R = 6371, dLat = (b[0]-a[0])*Math.PI/180, dLon = (b[1]-a[1])*Math.PI/180;
-        var s = Math.sin(dLat/2), t = Math.sin(dLon/2);
-        return 2*R*Math.asin(Math.sqrt(s*s + Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*t*t));
+    function _hav(a, b) {
+        var R=6371, dL=(b[0]-a[0])*Math.PI/180, dO=(b[1]-a[1])*Math.PI/180;
+        var s=Math.sin(dL/2), t=Math.sin(dO/2);
+        return 2*R*Math.asin(Math.sqrt(s*s+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*t*t));
     }
-    function _road(km) { return Math.round(km * 0.621371 * 1.25); }
-
-    // Compute per-assignment deadhead for a driver's sorted day sequence.
-    // Returns [{toDH, retDH}] — retDH is non-zero only for the last assignment.
+    function _mi(km) { return Math.round(km*0.621371*1.25); }
     function _driverDH(sorted) {
-        return sorted.map(function (a, i) {
-            var orig = _latLon(a.originCity, a.originState);
-            var dest = _latLon(a.destCity,   a.destState);
-            var toDH = 0, retDH = 0;
-            if (i === 0) {
-                if (orig) toDH = _road(_haversineKm(BASE, orig));
-            } else {
-                var prev = sorted[i - 1];
-                var pd = _latLon(prev.destCity, prev.destState);
-                if (pd && orig) toDH = _road(_haversineKm(pd, orig));
-            }
-            if (i === sorted.length - 1 && dest) retDH = _road(_haversineKm(dest, BASE));
-            return { toDH: toDH, retDH: retDH };
+        return sorted.map(function(a,i) {
+            var orig=_ll(a.originCity,a.originState), dest=_ll(a.destCity,a.destState);
+            var toDH=0, retDH=0;
+            if (i===0) { if(orig) toDH=_mi(_hav(BASE,orig)); }
+            else { var pd=_ll(sorted[i-1].destCity,sorted[i-1].destState); if(pd&&orig) toDH=_mi(_hav(pd,orig)); }
+            if (i===sorted.length-1 && dest) retDH=_mi(_hav(dest,BASE));
+            return {toDH:toDH,retDH:retDH};
         });
     }
 
-    // ── Completion ───────────────────────────────────────────────────────────
-    function _complete(a) {
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function _done(a) {
         return !!(a.dispatched && a.pickedUp && a.delivered &&
                   a.paperworkReceived && a.paperworkReviewed && a.invoicingReady);
     }
-
-    // ── HTML escape ──────────────────────────────────────────────────────────
     function _e(s) {
-        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
-                               .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function _hash(str) {
+        var h=0; for(var i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))&0xffff; return h;
+    }
+    function _dc(name)  { return DRIVER_COLORS[_hash((name||'').toLowerCase()) % DRIVER_COLORS.length]; }
+    function _lc(id)    { return LOAD_COLORS[_hash(id||'') % LOAD_COLORS.length]; }
+    function _drivers() {
+        var seen={},out=[];
+        _asgns.forEach(function(a){ var d=(a.driverName||'').trim(); if(d&&!seen[d]){seen[d]=1;out.push(d);} });
+        return out.sort();
+    }
+    function _nextSeq(day, driver) {
+        return _asgns.filter(function(a){
+            return a.date===day && (a.driverName||'').trim()===(driver||'').trim();
+        }).length + 1;
     }
 
-    // ── Load data ────────────────────────────────────────────────────────────
-    function _load(weekMon) {
-        var el = document.getElementById(_cid);
-        if (el) el.innerHTML = '<div class="sch-loading">Loading schedule\u2026</div>';
-        _api('GET', '/api/ivan/schedule?weekStart=' + weekMon).then(function (data) {
-            _assignments = Array.isArray(data) ? data : (data.assignments || []);
-            _loads       = Array.isArray(data) ? [] : (data.loads || []);
-            _weekStart   = weekMon;
+    // ── Load data ─────────────────────────────────────────────────────────────
+    function _load(week) {
+        var el=document.getElementById(_cid);
+        if(el) el.innerHTML='<div class="sc-loading">Loading schedule\u2026</div>';
+        _api('GET','/api/ivan/schedule?weekStart='+week).then(function(data){
+            _asgns  = Array.isArray(data) ? data : (data.assignments||[]);
+            _loads  = Array.isArray(data) ? [] : (data.loads||[]);
+            _weekStart = week;
             _render();
-        }).catch(function (err) {
-            var el = document.getElementById(_cid);
-            if (el) el.innerHTML = '<div class="sch-error">Failed to load: ' + err.message + '</div>';
+        }).catch(function(err){
+            var el2=document.getElementById(_cid);
+            if(el2) el2.innerHTML='<div class="sc-error">Failed to load: '+_e(err.message)+'</div>';
         });
     }
 
-    // ── Render ───────────────────────────────────────────────────────────────
+    // ── Render ────────────────────────────────────────────────────────────────
     function _render() {
-        var el = document.getElementById(_cid);
-        if (!el) return;
-        var html = '<div class="sch-board">' + _navHTML();
-        _weekDays().forEach(function (day) {
-            html += _dayHTML(day, _assignments.filter(function (a) { return a.date === day; }));
+        var el=document.getElementById(_cid); if(!el) return;
+        var today=_iso(new Date()), days=_weekDays(), knownDrvs=_drivers();
+        var html='<div class="sc-board">'+_navHTML();
+        html+='<datalist id="sc-drvs-dl">';
+        knownDrvs.forEach(function(d){ html+='<option value="'+_e(d)+'">'; });
+        html+='</datalist>';
+        html+='<div class="sc-calendar">';
+        days.forEach(function(day){
+            var isToday=day===today;
+            var dayA=_asgns.filter(function(a){ return a.date===day; });
+            html+=_colHTML(day,dayA,isToday);
         });
-        html += '</div>' + _modalHTML();
-        el.innerHTML = html;
+        html+='</div></div>';
+        el.innerHTML=html;
         _bind(el);
     }
 
     function _navHTML() {
-        return '<div class="sch-nav">' +
-            '<button class="sch-nav-btn" data-action="prev-week">\u25c4 Prev</button>' +
-            '<span class="sch-week-label">' + _fmtWeekLabel() + '</span>' +
-            '<button class="sch-nav-btn" data-action="next-week">Next \u25ba</button>' +
-            '<button class="sch-nav-btn sch-today-btn" data-action="today-week">Today</button>' +
-            '<button class="sch-add-btn" data-action="add-asgn">+ Add Assignment</button>' +
+        return '<div class="sc-nav">'+
+            '<button class="sc-nav-btn" data-action="prev-week">\u25c4 Prev</button>'+
+            '<span class="sc-week-label">'+_fmtWeek()+'</span>'+
+            '<button class="sc-nav-btn" data-action="next-week">Next \u25ba</button>'+
+            '<button class="sc-nav-btn sc-today-btn" data-action="today-week">Today</button>'+
             '</div>';
     }
 
-    function _dayHTML(day, dayAsgns) {
-        var drivers = [];
-        dayAsgns.forEach(function (a) {
-            var d = (a.driverName || 'Unassigned').trim();
-            if (drivers.indexOf(d) < 0) drivers.push(d);
-        });
-        drivers.sort();
+    function _colHTML(day, dayA, isToday) {
+        var hdr=_fmtColHdr(day);
+        var drvs=[];
+        dayA.forEach(function(a){ var d=(a.driverName||'Unassigned').trim(); if(drvs.indexOf(d)<0) drvs.push(d); });
+        drvs.sort();
 
-        var html = '<div class="sch-day-section">' +
-            '<div class="sch-day-hdr">' +
-                '<span class="sch-day-name">' + _fmtDay(day) + '</span>' +
-                '<span class="sch-day-count">' + dayAsgns.length + ' assignment' + (dayAsgns.length !== 1 ? 's' : '') + '</span>' +
-                '<button class="sch-day-add" data-action="add-asgn" data-day="' + day + '">+ Add</button>' +
-            '</div>';
+        var cls='sc-col'+(isToday?' sc-col-today':'');
+        var h='<div class="'+cls+'" data-day="'+day+'">';
+        h+='<div class="sc-col-hdr">';
+        h+='<span class="sc-col-dayname">'+hdr.day+'</span>';
+        h+='<span class="sc-col-date">'+hdr.date+'</span>';
+        if(isToday) h+='<span class="sc-today-pill">TODAY</span>';
+        h+='</div>';
 
-        if (drivers.length === 0) {
-            html += '<div class="sch-empty-day">No assignments scheduled</div>';
+        if(drvs.length===0) {
+            h+='<div class="sc-empty-col">No assignments yet</div>';
         } else {
-            drivers.forEach(function (driver) {
-                var da = dayAsgns.filter(function (a) {
-                    return (a.driverName || 'Unassigned').trim() === driver;
-                }).sort(function (a, b) { return a.sequenceNumber - b.sequenceNumber; });
-                html += _driverGroupHTML(driver, day, da);
+            drvs.forEach(function(drv){
+                var da=dayA.filter(function(a){ return (a.driverName||'Unassigned').trim()===drv; })
+                           .sort(function(a,b){ return a.sequenceNumber-b.sequenceNumber; });
+                h+=_drvSection(drv,day,da);
             });
         }
-        return html + '</div>';
+
+        h+=_addFormHTML(day);
+        h+='<button class="sc-add-col-btn" data-action="show-add" data-day="'+day+'">+ Add Assignment</button>';
+        h+='</div>';
+        return h;
     }
 
-    var COL_HDR =
-        '<div class="sch-col-hdr">' +
-        '<div class="sch-c sch-c-seq">#</div>' +
-        '<div class="sch-c sch-c-ref">Load Ref</div>' +
-        '<div class="sch-c sch-c-act">Action</div>' +
-        '<div class="sch-c sch-c-city">From</div>' +
-        '<div class="sch-c sch-c-city">To</div>' +
-        '<div class="sch-c sch-c-time">PU</div>' +
-        '<div class="sch-c sch-c-time">DE</div>' +
-        '<div class="sch-c sch-c-dh">DH</div>' +
-        '<div class="sch-c sch-c-chks"><span title="Dispatched">D</span>' +
-            '<span title="Picked Up">P</span><span title="Delivered">V</span>' +
-            '<span title="Paperwork Rcvd">R</span><span title="Paperwork Rev\'d">W</span>' +
-            '<span title="Invoicing Ready">I</span></div>' +
-        '<div class="sch-c sch-c-done"></div>' +
-        '<div class="sch-c sch-c-btn"></div>' +
-        '</div>';
+    function _drvSection(drv, day, sorted) {
+        var dc=_dc(drv), dh=_driverDH(sorted);
+        var retDH=dh.length ? dh[dh.length-1].retDH : 0;
+        var h='<div class="sc-drv-sec" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+'">';
+        h+='<div class="sc-drv-hdr">';
+        h+='<span class="sc-drv-name">'+_e(drv)+'</span>';
+        h+='<button class="sc-drv-add" data-action="show-add" data-day="'+day+'" data-driver="'+_e(drv)+'" title="Add move for this driver">+</button>';
+        h+='</div>';
+        sorted.forEach(function(a,i){ h+=_cardHTML(a, dh[i].toDH, dc); });
+        if(retDH>0) h+='<div class="sc-ret-bar">\u21a9 Base: '+retDH+' mi</div>';
+        h+='</div>';
+        return h;
+    }
 
-    function _driverGroupHTML(driver, day, sorted) {
-        var dh     = _driverDH(sorted);
-        var totalDH = dh.reduce(function (s, v) { return s + v.toDH; }, 0);
-        var retDH   = dh.length ? dh[dh.length - 1].retDH : 0;
+    function _cardHTML(a, dhMi, dc) {
+        var isDone=_done(a), load=a.load||{};
+        var pro=load.alexeiId||'';
+        var lc=a.loadId?_lc(a.loadId):null;
+        var label=ACTION_LABEL[a.actionType]||a.actionType||'?';
+        var actCss=ACTION_CSS[a.actionType]||'sc-badge-other';
+        var orig=[a.originCity,a.originState].filter(Boolean).join(', ');
+        var dest=[a.destCity,a.destState].filter(Boolean).join(', ');
 
-        var html = '<div class="sch-driver-group">' +
-            '<div class="sch-driver-hdr">' +
-                '<span class="sch-driver-name">' + _e(driver.toUpperCase()) + '</span>' +
-                (totalDH > 0 ? '<span class="sch-driver-dh">DH in: ' + totalDH + ' mi</span>' : '') +
-                '<button class="sch-driver-add" data-action="add-asgn" data-day="' + day + '" data-driver="' + _e(driver) + '">+ Add</button>' +
-            '</div>' + COL_HDR;
+        var cls='sc-card'+(isDone?' sc-card-done':'');
+        var h='<div class="'+cls+'" data-id="'+a.id+'" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+'">';
 
-        sorted.forEach(function (a, i) {
-            html += _rowHTML(a, dh[i].toDH);
+        // ── View ──
+        h+='<div class="sc-card-view">';
+        // Top row
+        h+='<div class="sc-card-top">';
+        h+='<span class="sc-seq">'+a.sequenceNumber+'</span>';
+        h+='<span class="sc-badge '+actCss+'">'+_e(label)+'</span>';
+        if(pro&&lc) h+='<span class="sc-chip" style="--lc:'+lc+'">'+_e(pro)+'</span>';
+        if(dhMi>0)  h+='<span class="sc-dh-tag">'+dhMi+' mi</span>';
+        h+='<span class="sc-card-acts">';
+        h+='<button class="sc-btn-icon" data-action="toggle-edit" data-id="'+a.id+'" title="Edit">\u270e</button>';
+        h+='<button class="sc-btn-icon sc-btn-del" data-action="del-asgn" data-id="'+a.id+'" title="Delete">\u00d7</button>';
+        h+='</span>';
+        h+='</div>';
+        // Route
+        if(orig||dest) h+='<div class="sc-route">'+_e(orig)+(orig&&dest?' \u2192 ':'')+_e(dest)+'</div>';
+        // Appts
+        var pts=[]; if(a.puAppt) pts.push('PU '+a.puAppt); if(a.deAppt) pts.push('DE '+a.deAppt);
+        if(pts.length) h+='<div class="sc-appts">'+_e(pts.join(' \u00b7 '))+'</div>';
+        // Checkboxes
+        var CHKS=[
+            ['dispatched','D','Dispatched'],
+            ['pickedUp','P','Picked Up'],
+            ['delivered','V','Delivered'],
+            ['paperworkReceived','R','Paperwork Rcvd'],
+            ['paperworkReviewed','W','Paperwork Rev\'d'],
+            ['invoicingReady','I','Invoicing Ready'],
+        ];
+        h+='<div class="sc-chks">';
+        CHKS.forEach(function(c){
+            h+='<label class="sc-chk-lbl" title="'+c[2]+'">'+
+               '<input type="checkbox" class="sc-chk"'+(a[c[0]]?' checked':'')+
+               ' data-action="toggle-chk" data-id="'+a.id+'" data-field="'+c[0]+'">'+
+               '<span>'+c[1]+'</span></label>';
         });
-
-        if (retDH > 0) {
-            html += '<div class="sch-return-bar">\u21a9 Return to base (Pleasant Prairie, WI): ' + retDH + ' mi</div>';
+        if(isDone) h+='<span class="sc-done-mark" title="Fully complete">\u2713</span>';
+        h+='</div>';
+        // Notes
+        if(a.notes) {
+            var n=a.notes; h+='<div class="sc-notes">'+_e(n.length>55?n.substring(0,55)+'\u2026':n)+'</div>';
         }
-        return html + '</div>';
+        h+='</div>'; // sc-card-view
+
+        // ── Edit form (hidden) ──
+        h+=_editFormHTML(a);
+
+        h+='</div>'; // sc-card
+        return h;
     }
 
-    function _rowHTML(a, dhMi) {
-        var done  = _complete(a);
-        var load  = a.load || {};
-        var ref   = _e(load.alexeiId || (a.loadId ? a.loadId.substring(0, 12) : '\u2014'));
-        var label = ACTION_LABEL[a.actionType] || a.actionType || '?';
-        var css   = ACTION_CSS[a.actionType]   || 'sch-badge-other';
-
-        function chk(field, val) {
-            return '<input type="checkbox" class="sch-chk"' + (val ? ' checked' : '') +
-                   ' data-action="toggle-chk" data-id="' + a.id + '" data-field="' + field + '">';
-        }
-
-        var row = '<div class="sch-row' + (done ? ' sch-row-done' : '') + '" data-id="' + a.id + '">' +
-            '<div class="sch-c sch-c-seq">' + a.sequenceNumber + '</div>' +
-            '<div class="sch-c sch-c-ref" title="' + _e(load.tmsId || '') + '">' + ref + '</div>' +
-            '<div class="sch-c sch-c-act"><span class="sch-badge ' + css + '">' + _e(label) + '</span></div>' +
-            '<div class="sch-c sch-c-city">' + _e(a.originCity || '') + (a.originState ? ', ' + _e(a.originState) : '') + '</div>' +
-            '<div class="sch-c sch-c-city">' + _e(a.destCity   || '') + (a.destState   ? ', ' + _e(a.destState)   : '') + '</div>' +
-            '<div class="sch-c sch-c-time">' + _e(a.puAppt || '') + '</div>' +
-            '<div class="sch-c sch-c-time">' + _e(a.deAppt || '') + '</div>' +
-            '<div class="sch-c sch-c-dh' + (dhMi > 0 ? ' sch-dh-hi' : '') + '">' + (dhMi > 0 ? dhMi + ' mi' : '\u2014') + '</div>' +
-            '<div class="sch-c sch-c-chks">' +
-                chk('dispatched',         a.dispatched) +
-                chk('pickedUp',           a.pickedUp) +
-                chk('delivered',          a.delivered) +
-                chk('paperworkReceived',  a.paperworkReceived) +
-                chk('paperworkReviewed',  a.paperworkReviewed) +
-                chk('invoicingReady',     a.invoicingReady) +
-            '</div>' +
-            '<div class="sch-c sch-c-done">' + (done ? '<span class="sch-done-icon" title="Fully complete">\u2713</span>' : '') + '</div>' +
-            '<div class="sch-c sch-c-btn">' +
-                '<button class="sch-edit-btn" data-action="edit-asgn" data-id="' + a.id + '">Edit</button>' +
-                '<button class="sch-del-btn"  data-action="del-asgn"  data-id="' + a.id + '">\u{1F5D1}</button>' +
-            '</div>' +
-            '</div>';
-
-        if (a.notes) {
-            row += '<div class="sch-row-notes" title="' + _e(a.notes) + '">' +
-                '\u{1F4CB} ' + _e(a.notes.length > 80 ? a.notes.substring(0, 80) + '\u2026' : a.notes) +
-                '</div>';
-        }
-        return row;
+    function _editFormHTML(a) {
+        var load=a.load||{};
+        var h='<div class="sc-card-edit" style="display:none" data-edit-for="'+a.id+'">';
+        h+='<div class="sc-ef-grid">';
+        // PRO / TMS
+        h+='<div class="sc-ef-row2">';
+        h+='<label class="sc-ef-lbl">PRO #<input class="sc-inp" name="pro" value="'+_e(load.alexeiId||'')+'" placeholder="PRO-10421"></label>';
+        h+='<label class="sc-ef-lbl">TMS<input class="sc-inp" name="tms" value="'+_e(load.tmsId||'')+'" placeholder="TMS-8801"></label>';
+        h+='</div>';
+        // Action / Driver
+        h+='<div class="sc-ef-row2">';
+        h+='<label class="sc-ef-lbl">Action'+_actSel('action',a.actionType||'PICKUP')+'</label>';
+        h+='<label class="sc-ef-lbl">Driver<input class="sc-inp" name="driver" value="'+_e(a.driverName||'')+'" list="sc-drvs-dl" placeholder="Alexei"></label>';
+        h+='</div>';
+        // From
+        h+='<div class="sc-ef-row-cs">';
+        h+='<label class="sc-ef-lbl sc-ef-city">From City<input class="sc-inp" name="origcity" value="'+_e(a.originCity||'')+'" placeholder="Chicago"></label>';
+        h+='<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="origst" value="'+_e(a.originState||'')+'" maxlength="2" placeholder="IL"></label>';
+        h+='</div>';
+        // To
+        h+='<div class="sc-ef-row-cs">';
+        h+='<label class="sc-ef-lbl sc-ef-city">To City<input class="sc-inp" name="dstcity" value="'+_e(a.destCity||'')+'" placeholder="Milwaukee"></label>';
+        h+='<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="dstst" value="'+_e(a.destState||'')+'" maxlength="2" placeholder="WI"></label>';
+        h+='</div>';
+        // Appts + Seq
+        h+='<div class="sc-ef-row3">';
+        h+='<label class="sc-ef-lbl">PU Appt<input class="sc-inp" type="time" name="puappt" value="'+_e(a.puAppt||'')+'"></label>';
+        h+='<label class="sc-ef-lbl">DE Appt<input class="sc-inp" type="time" name="deappt" value="'+_e(a.deAppt||'')+'"></label>';
+        h+='<label class="sc-ef-lbl">Seq<input class="sc-inp" type="number" name="seq" value="'+_e(a.sequenceNumber||1)+'" min="1" max="20"></label>';
+        h+='</div>';
+        // Notes
+        h+='<label class="sc-ef-lbl sc-ef-full">Notes<input class="sc-inp" name="notes" value="'+_e(a.notes||'')+'" placeholder="Notes\u2026"></label>';
+        h+='</div>'; // sc-ef-grid
+        h+='<div class="sc-ef-btns">';
+        h+='<button class="sc-btn-cancel" data-action="cancel-edit" data-id="'+a.id+'">Cancel</button>';
+        h+='<button class="sc-btn-save" data-action="save-edit" data-id="'+a.id+'">Save</button>';
+        h+='</div>';
+        h+='</div>'; // sc-card-edit
+        return h;
     }
 
-    // ── Modal ────────────────────────────────────────────────────────────────
-    function _modalHTML() {
-        var loadOpts = '<option value="">— New Load —</option>';
-        _loads.forEach(function (l) {
-            var label = [l.alexeiId, l.tmsId,
-                (l.puCity && l.deCity ? l.puCity + ' \u2192 ' + l.deCity : '')
-            ].filter(Boolean).join(' | ');
-            loadOpts += '<option value="' + _e(l.id) + '">' + _e(label || l.id) + '</option>';
-        });
+    function _addFormHTML(day) {
+        var h='<div class="sc-add-form" data-add-day="'+day+'" style="display:none">';
+        h+='<div class="sc-add-form-hdr">New Assignment</div>';
+        h+='<div class="sc-ef-grid">';
+        h+='<div class="sc-ef-row2">';
+        h+='<label class="sc-ef-lbl">PRO #<input class="sc-inp" name="pro" placeholder="PRO-10421"></label>';
+        h+='<label class="sc-ef-lbl">TMS<input class="sc-inp" name="tms" placeholder="TMS-8801"></label>';
+        h+='</div>';
+        h+='<div class="sc-ef-row2">';
+        h+='<label class="sc-ef-lbl">Action'+_actSel('action','PICKUP')+'</label>';
+        h+='<label class="sc-ef-lbl">Driver<input class="sc-inp" name="driver" list="sc-drvs-dl" placeholder="Alexei"></label>';
+        h+='</div>';
+        h+='<div class="sc-ef-row-cs">';
+        h+='<label class="sc-ef-lbl sc-ef-city">From City<input class="sc-inp" name="origcity" placeholder="Chicago"></label>';
+        h+='<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="origst" maxlength="2" placeholder="IL"></label>';
+        h+='</div>';
+        h+='<div class="sc-ef-row-cs">';
+        h+='<label class="sc-ef-lbl sc-ef-city">To City<input class="sc-inp" name="dstcity" placeholder="Milwaukee"></label>';
+        h+='<label class="sc-ef-lbl sc-ef-st">ST<input class="sc-inp" name="dstst" maxlength="2" placeholder="WI"></label>';
+        h+='</div>';
+        h+='<div class="sc-ef-row3">';
+        h+='<label class="sc-ef-lbl">PU Appt<input class="sc-inp" type="time" name="puappt"></label>';
+        h+='<label class="sc-ef-lbl">DE Appt<input class="sc-inp" type="time" name="deappt"></label>';
+        h+='<label class="sc-ef-lbl">Seq<input class="sc-inp" type="number" name="seq" value="1" min="1" max="20"></label>';
+        h+='</div>';
+        h+='<label class="sc-ef-lbl sc-ef-full">Notes<input class="sc-inp" name="notes" placeholder="Notes\u2026"></label>';
+        h+='</div>'; // sc-ef-grid
+        h+='<div class="sc-ef-btns">';
+        h+='<button class="sc-btn-cancel" data-action="cancel-add" data-day="'+day+'">Cancel</button>';
+        h+='<button class="sc-btn-save" data-action="save-new" data-day="'+day+'">Save</button>';
+        h+='</div>';
+        h+='</div>'; // sc-add-form
+        return h;
+    }
 
-        return '<div id="sch-modal" class="sch-modal-overlay" style="display:none">' +
-            '<div class="sch-modal">' +
-                '<div class="sch-modal-hdr">' +
-                    '<span id="sch-modal-title">Add Assignment</span>' +
-                    '<button class="sch-modal-x" data-action="close-modal">\u2715</button>' +
-                '</div>' +
-                '<div class="sch-modal-body">' +
-                    '<div class="sch-section-label">SHIPMENT</div>' +
-                    '<div class="sch-form-grid">' +
-                        '<label class="sch-full">Link to existing load<br>' +
-                            '<select id="sf-load" class="sch-inp">' + loadOpts + '</select>' +
-                        '</label>' +
-                        '<label>PRO #<br><input id="sf-pro" class="sch-inp" placeholder="PRO-10421"></label>' +
-                        '<label>TMS ID<br><input id="sf-tms" class="sch-inp" placeholder="TMS-8801"></label>' +
-                        '<label>PU #<br><input id="sf-punum" class="sch-inp" placeholder="PU-4421"></label>' +
-                        '<label>PU City<br><input id="sf-pucity" class="sch-inp" placeholder="Chicago"></label>' +
-                        '<label>PU State<br><input id="sf-pust" class="sch-inp" maxlength="2" placeholder="IL"></label>' +
-                        '<label>DE City<br><input id="sf-decity" class="sch-inp" placeholder="Milwaukee"></label>' +
-                        '<label>DE State<br><input id="sf-dest" class="sch-inp" maxlength="2" placeholder="WI"></label>' +
-                    '</div>' +
-                    '<div class="sch-section-label" style="margin-top:14px">ASSIGNMENT</div>' +
-                    '<div class="sch-form-grid">' +
-                        '<label>Date<br><input type="date" id="sf-date" class="sch-inp"></label>' +
-                        '<label>Driver<br><input id="sf-driver" class="sch-inp" placeholder="Alexei"></label>' +
-                        '<label>Seq #<br><input type="number" id="sf-seq" class="sch-inp" min="1" max="10" value="1"></label>' +
-                        '<label>Action Type<br>' +
-                            '<select id="sf-action" class="sch-inp">' +
-                                '<option value="PICKUP">PICKUP</option>' +
-                                '<option value="DELIVERY">DELIVERY</option>' +
-                                '<option value="PICKUP_AND_DELIVER">PICKUP &amp; DELIVER</option>' +
-                                '<option value="REPOSITION">REPOSITION</option>' +
-                                '<option value="OTHER">OTHER</option>' +
-                            '</select>' +
-                        '</label>' +
-                        '<label>Origin City<br><input id="sf-origcity" class="sch-inp" placeholder="Chicago"></label>' +
-                        '<label>Origin State<br><input id="sf-origst" class="sch-inp" maxlength="2" placeholder="IL"></label>' +
-                        '<label>Dest City<br><input id="sf-dstcity" class="sch-inp" placeholder="Milwaukee"></label>' +
-                        '<label>Dest State<br><input id="sf-dstst" class="sch-inp" maxlength="2" placeholder="WI"></label>' +
-                        '<label>PU Appt<br><input type="time" id="sf-puappt" class="sch-inp"></label>' +
-                        '<label>DE Appt<br><input type="time" id="sf-deappt" class="sch-inp"></label>' +
-                        '<label class="sch-full">Notes<br><textarea id="sf-notes" class="sch-inp sch-textarea" rows="2"></textarea></label>' +
-                    '</div>' +
-                '</div>' +
-                '<div class="sch-modal-ftr">' +
-                    '<button class="sch-btn-cancel" data-action="close-modal">Cancel</button>' +
-                    '<button class="sch-btn-save" data-action="save-asgn">Save</button>' +
-                '</div>' +
-            '</div>' +
-        '</div>';
+    function _actSel(name, val) {
+        var opts=[['PICKUP','PICKUP'],['DELIVERY','DELIVERY'],['PICKUP_AND_DELIVER','P&D'],['REPOSITION','REPOSITION'],['OTHER','OTHER']];
+        var s='<select class="sc-inp" name="'+name+'">';
+        opts.forEach(function(o){ s+='<option value="'+o[0]+'"'+(val===o[0]?' selected':'')+'>'+_e(o[1])+'</option>'; });
+        return s+'</select>';
     }
 
     // ── Event binding ─────────────────────────────────────────────────────────
     function _bind(el) {
-        el.addEventListener('click', function (e) {
-            var b = e.target.closest('[data-action]');
-            if (!b) return;
-            switch (b.dataset.action) {
-                case 'prev-week':    _load(_addDays(_weekStart, -7)); break;
-                case 'next-week':    _load(_addDays(_weekStart, 7));  break;
-                case 'today-week':   _load(_mondayOf(new Date()));    break;
-                case 'add-asgn':     _openModal(null, b.dataset.day, b.dataset.driver); break;
-                case 'edit-asgn': {
-                    var a = _assignments.find(function (x) { return x.id === b.dataset.id; });
-                    if (a) _openModal(a, null, null);
-                    break;
-                }
-                case 'del-asgn':     _deleteAsgn(b.dataset.id); break;
-                case 'close-modal':  _closeModal(); break;
-                case 'save-asgn':    _saveAsgn(); break;
+        el.addEventListener('click', function(e) {
+            var b=e.target.closest('[data-action]'); if(!b) return;
+            switch(b.dataset.action) {
+                case 'prev-week':   _load(_addDays(_weekStart,-7)); break;
+                case 'next-week':   _load(_addDays(_weekStart, 7)); break;
+                case 'today-week':  _load(_mondayOf(new Date()));   break;
+                case 'toggle-edit': _toggleEdit(b.dataset.id);      break;
+                case 'cancel-edit': _cancelEdit(b.dataset.id);      break;
+                case 'save-edit':   _saveEdit(b.dataset.id);        break;
+                case 'del-asgn':    _delAsgn(b.dataset.id);         break;
+                case 'show-add':    _showAdd(b.dataset.day, b.dataset.driver||''); break;
+                case 'cancel-add':  _cancelAdd(b.dataset.day);      break;
+                case 'save-new':    _saveNew(b.dataset.day);        break;
             }
         });
-
-        el.addEventListener('change', function (e) {
-            var t = e.target;
-            if (t.dataset.action === 'toggle-chk') {
-                _toggleChk(t.dataset.id, t.dataset.field, t.checked);
-            }
-            if (t.id === 'sf-load') {
-                _onLoadSelect(t.value);
-            }
-        });
-
-        var overlay = document.getElementById('sch-modal');
-        if (overlay) overlay.addEventListener('click', function (e) {
-            if (e.target === overlay) _closeModal();
+        el.addEventListener('change', function(e) {
+            var t=e.target;
+            if(t.dataset.action==='toggle-chk') _toggleChk(t.dataset.id, t.dataset.field, t.checked);
         });
     }
 
-    // ── Load selector auto-fill ───────────────────────────────────────────────
-    function _onLoadSelect(id) {
-        var set = function (eid, v) { var el = document.getElementById(eid); if (el) el.value = v || ''; };
-        if (!id) {
-            ['sf-pro','sf-tms','sf-punum','sf-pucity','sf-pust','sf-decity','sf-dest'].forEach(function (eid) { set(eid, ''); });
-            return;
-        }
-        var l = _loads.find(function (x) { return x.id === id; });
-        if (!l) return;
-        set('sf-pro',    l.alexeiId);
-        set('sf-tms',    l.tmsId);
-        set('sf-punum',  l.puNumber);
-        set('sf-pucity', l.puCity);
-        set('sf-pust',   l.puState);
-        set('sf-decity', l.deCity);
-        set('sf-dest',   l.deState);
-
-        // Auto-fill origin/dest from action type
-        var action  = (document.getElementById('sf-action') || {}).value || 'PICKUP';
-        var setIf   = function (eid, v) { var el = document.getElementById(eid); if (el && !el.value) el.value = v || ''; };
-        if (action === 'PICKUP' || action === 'PICKUP_AND_DELIVER') {
-            setIf('sf-origcity', l.puCity);  setIf('sf-origst', l.puState);
-        }
-        if (action === 'DELIVERY' || action === 'PICKUP_AND_DELIVER') {
-            setIf('sf-dstcity', l.deCity);   setIf('sf-dstst', l.deState);
-        }
+    // ── Toggle edit ───────────────────────────────────────────────────────────
+    function _toggleEdit(id) {
+        var card=document.querySelector('.sc-card[data-id="'+id+'"]'); if(!card) return;
+        var ef=card.querySelector('.sc-card-edit'); if(!ef) return;
+        var open=ef.style.display!=='none';
+        ef.style.display=open?'none':'block';
+        if(!open) { var fi=ef.querySelector('input,select'); if(fi) fi.focus(); }
+    }
+    function _cancelEdit(id) {
+        var card=document.querySelector('.sc-card[data-id="'+id+'"]'); if(!card) return;
+        var ef=card.querySelector('.sc-card-edit'); if(ef) ef.style.display='none';
     }
 
-    // ── Modal open / close ────────────────────────────────────────────────────
-    function _openModal(asgn, defaultDay, defaultDriver) {
-        _editAsgn   = asgn;
-        _editLoadId = asgn ? (asgn.loadId || null) : null;
+    // ── Save edit ─────────────────────────────────────────────────────────────
+    function _saveEdit(id) {
+        var card=document.querySelector('.sc-card[data-id="'+id+'"]'); if(!card) return;
+        var ef=card.querySelector('.sc-card-edit'); if(!ef) return;
+        var a=_asgns.find(function(x){ return x.id===id; }); if(!a) return;
 
-        var modal = document.getElementById('sch-modal');
-        if (!modal) return;
-        document.getElementById('sch-modal-title').textContent = asgn ? 'Edit Assignment' : 'Add Assignment';
+        var g=function(name){ var inp=ef.querySelector('[name="'+name+'"]'); return inp?inp.value.trim():''; };
+        var saveBtn=ef.querySelector('[data-action="save-edit"]');
+        if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='Saving\u2026'; }
 
-        var load = asgn && asgn.load ? asgn.load : null;
-        var set  = function (id, v) { var el = document.getElementById(id); if (el) el.value = v || ''; };
-
-        // Load selector
-        var loadSel = document.getElementById('sf-load');
-        if (loadSel) loadSel.value = _editLoadId || '';
-
-        // Load fields
-        set('sf-pro',    load ? load.alexeiId : '');
-        set('sf-tms',    load ? load.tmsId    : '');
-        set('sf-punum',  load ? load.puNumber : '');
-        set('sf-pucity', load ? load.puCity   : '');
-        set('sf-pust',   load ? load.puState  : '');
-        set('sf-decity', load ? load.deCity   : '');
-        set('sf-dest',   load ? load.deState  : '');
-
-        // Assignment fields
-        set('sf-date',     asgn ? asgn.date        : (defaultDay    || _weekStart));
-        set('sf-driver',   asgn ? asgn.driverName  : (defaultDriver || ''));
-        set('sf-origcity', asgn ? asgn.originCity  : '');
-        set('sf-origst',   asgn ? asgn.originState : '');
-        set('sf-dstcity',  asgn ? asgn.destCity    : '');
-        set('sf-dstst',    asgn ? asgn.destState   : '');
-        set('sf-puappt',   asgn ? asgn.puAppt      : '');
-        set('sf-deappt',   asgn ? asgn.deAppt      : '');
-        set('sf-notes',    asgn ? asgn.notes       : '');
-
-        // Sequence number: auto-next for driver+day
-        var seqEl = document.getElementById('sf-seq');
-        if (seqEl) {
-            if (asgn) {
-                seqEl.value = asgn.sequenceNumber;
-            } else {
-                var date   = defaultDay || _weekStart;
-                var driver = (defaultDriver || '').trim();
-                var count  = _assignments.filter(function (a) {
-                    return a.date === date && (a.driverName || '').trim() === driver;
-                }).length;
-                seqEl.value = count + 1;
-            }
-        }
-
-        // Action type
-        var actionEl = document.getElementById('sf-action');
-        var target   = asgn ? (asgn.actionType || 'PICKUP') : 'PICKUP';
-        if (actionEl) Array.from(actionEl.options).forEach(function (o) { o.selected = o.value === target; });
-
-        modal.style.display = 'flex';
-        setTimeout(function () { var df = document.getElementById('sf-driver'); if (df) df.focus(); }, 60);
-    }
-
-    function _closeModal() {
-        var m = document.getElementById('sch-modal');
-        if (m) m.style.display = 'none';
-        _editAsgn = null; _editLoadId = null;
-    }
-
-    // ── Save ──────────────────────────────────────────────────────────────────
-    function _saveAsgn() {
-        var date = (document.getElementById('sf-date') || {}).value || '';
-        if (!date) { alert('Please select a date.'); return; }
-
-        var weekDays = _weekDays();
-        if (weekDays.indexOf(date) < 0) {
-            alert('Date must be within the current week (' + _weekStart + ' \u2013 ' + _addDays(_weekStart, 4) + ').');
-            return;
-        }
-
-        var saveBtn = document.querySelector('[data-action="save-asgn"]');
-        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
-
-        var g = function (id) { return (document.getElementById(id) || {}).value || ''; };
-        var loadSel = document.getElementById('sf-load');
-        var selectedLoadId = loadSel ? loadSel.value : '';
-
-        var loadBody = {
-            alexeiId: g('sf-pro'),
-            tmsId:    g('sf-tms'),
-            puNumber: g('sf-punum'),
-            puCity:   g('sf-pucity'),
-            puState:  g('sf-pust').toUpperCase(),
-            deCity:   g('sf-decity'),
-            deState:  g('sf-dest').toUpperCase(),
-        };
-        var asgnBody = {
-            date:           date,
-            weekStart:      _weekStart,
-            driverName:     g('sf-driver').trim(),
-            sequenceNumber: parseInt(g('sf-seq') || '1', 10),
-            actionType:     g('sf-action') || 'PICKUP',
-            originCity:     g('sf-origcity'),
-            originState:    g('sf-origst').toUpperCase(),
-            destCity:       g('sf-dstcity'),
-            destState:      g('sf-dstst').toUpperCase(),
-            puAppt:         g('sf-puappt'),
-            deAppt:         g('sf-deappt'),
-            notes:          g('sf-notes'),
+        var loadBody={ alexeiId:g('pro'), tmsId:g('tms'), puCity:g('origcity'), puState:g('origst').toUpperCase(), deCity:g('dstcity'), deState:g('dstst').toUpperCase() };
+        var asgnBody={
+            date:a.date, weekStart:_weekStart,
+            driverName:g('driver')||a.driverName,
+            sequenceNumber:parseInt(g('seq')||a.sequenceNumber,10),
+            actionType:g('action')||a.actionType,
+            originCity:g('origcity'), originState:g('origst').toUpperCase(),
+            destCity:g('dstcity'),   destState:g('dstst').toUpperCase(),
+            puAppt:g('puappt'), deAppt:g('deappt'), notes:g('notes'),
         };
 
         var loadP;
-        if (selectedLoadId) {
-            loadP = _api('PUT', '/api/ivan/loads/' + selectedLoadId, loadBody)
-                        .then(function () { return selectedLoadId; });
-        } else if (_editAsgn && _editAsgn.loadId) {
-            loadP = _api('PUT', '/api/ivan/loads/' + _editAsgn.loadId, loadBody)
-                        .then(function () { return _editAsgn.loadId; });
+        if(a.loadId) {
+            loadP=_api('PUT','/api/ivan/loads/'+a.loadId,loadBody).then(function(){ return a.loadId; });
+        } else if(g('pro')||g('tms')||g('origcity')||g('dstcity')) {
+            loadP=_api('POST','/api/ivan/loads',loadBody).then(function(r){ return r.id; });
         } else {
-            loadP = _api('POST', '/api/ivan/loads', loadBody)
-                        .then(function (r) { return r.id; });
+            loadP=Promise.resolve(null);
         }
 
-        loadP.then(function (loadId) {
-            asgnBody.loadId = loadId;
-            return _editAsgn
-                ? _api('PUT',  '/api/ivan/schedule/assignments/' + _editAsgn.id, asgnBody)
-                : _api('POST', '/api/ivan/schedule/assignments', asgnBody);
-        }).then(function () {
-            _closeModal();
-            _load(_weekStart);
-        }).catch(function (err) {
-            alert('Save failed: ' + err.message);
-            if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
-        });
+        loadP.then(function(lid){ if(lid) asgnBody.loadId=lid; return _api('PUT','/api/ivan/schedule/assignments/'+id,asgnBody); })
+             .then(function(){ _load(_weekStart); })
+             .catch(function(err){ alert('Save failed: '+err.message); if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';} });
+    }
+
+    // ── Add form ──────────────────────────────────────────────────────────────
+    function _showAdd(day, driver) {
+        document.querySelectorAll('.sc-add-form').forEach(function(f){ if(f.dataset.addDay!==day) f.style.display='none'; });
+        var form=document.querySelector('.sc-add-form[data-add-day="'+day+'"]'); if(!form) return;
+        form.querySelectorAll('input,select').forEach(function(i){ i.value=''; });
+        form.querySelector('[name="action"]').value='PICKUP';
+        if(driver) { var di=form.querySelector('[name="driver"]'); if(di) di.value=driver; }
+        var seqI=form.querySelector('[name="seq"]');
+        if(seqI) seqI.value=_nextSeq(day,driver);
+        form.style.display='block';
+        setTimeout(function(){ form.scrollIntoView({behavior:'smooth',block:'nearest'}); },50);
+        setTimeout(function(){ var fi=form.querySelector('input'); if(fi) fi.focus(); },80);
+    }
+    function _cancelAdd(day) {
+        var f=document.querySelector('.sc-add-form[data-add-day="'+day+'"]'); if(f) f.style.display='none';
+    }
+
+    // ── Save new ──────────────────────────────────────────────────────────────
+    function _saveNew(day) {
+        var form=document.querySelector('.sc-add-form[data-add-day="'+day+'"]'); if(!form) return;
+        var g=function(name){ var inp=form.querySelector('[name="'+name+'"]'); return inp?inp.value.trim():''; };
+        var saveBtn=form.querySelector('[data-action="save-new"]');
+        if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='Saving\u2026'; }
+
+        var proNum=g('pro'), origcity=g('origcity'), dstcity=g('dstcity');
+        var loadBody={ alexeiId:proNum, tmsId:g('tms'), puCity:origcity, puState:g('origst').toUpperCase(), deCity:dstcity, deState:g('dstst').toUpperCase() };
+        var asgnBody={
+            date:day, weekStart:_weekStart,
+            driverName:g('driver'),
+            sequenceNumber:parseInt(g('seq')||'1',10),
+            actionType:g('action')||'PICKUP',
+            originCity:origcity, originState:g('origst').toUpperCase(),
+            destCity:dstcity,    destState:g('dstst').toUpperCase(),
+            puAppt:g('puappt'), deAppt:g('deappt'), notes:g('notes'),
+        };
+
+        var matchedLoad=proNum?_loads.find(function(l){ return l.alexeiId===proNum; }):null;
+        var loadP;
+        if(matchedLoad) { asgnBody.loadId=matchedLoad.id; loadP=Promise.resolve(matchedLoad.id); }
+        else if(proNum||g('tms')||origcity||dstcity) { loadP=_api('POST','/api/ivan/loads',loadBody).then(function(r){ asgnBody.loadId=r.id; return r.id; }); }
+        else { loadP=Promise.resolve(null); }
+
+        loadP.then(function(){ return _api('POST','/api/ivan/schedule/assignments',asgnBody); })
+             .then(function(){ _load(_weekStart); })
+             .catch(function(err){ alert('Save failed: '+err.message); if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';} });
     }
 
     // ── Delete ────────────────────────────────────────────────────────────────
-    function _deleteAsgn(id) {
-        if (!confirm('Delete this assignment? This cannot be undone.')) return;
-        _api('DELETE', '/api/ivan/schedule/assignments/' + id).then(function () {
-            _load(_weekStart);
-        }).catch(function (err) { alert('Delete failed: ' + err.message); });
+    function _delAsgn(id) {
+        if(!confirm('Delete this assignment?')) return;
+        _api('DELETE','/api/ivan/schedule/assignments/'+id)
+            .then(function(){ _load(_weekStart); })
+            .catch(function(err){ alert('Delete failed: '+err.message); });
     }
 
     // ── Checkbox toggle (optimistic) ──────────────────────────────────────────
     function _toggleChk(id, field, checked) {
-        var a = _assignments.find(function (x) { return x.id === id; });
-        if (!a) return;
-
-        var prev = a[field];
-        a[field] = checked;
-        a.isFullyComplete = _complete(a);
-
-        var row = document.querySelector('.sch-row[data-id="' + id + '"]');
-        if (row) {
-            row.classList.toggle('sch-row-done', a.isFullyComplete);
-            var dc = row.querySelector('.sch-c-done');
-            if (dc) dc.innerHTML = a.isFullyComplete
-                ? '<span class="sch-done-icon" title="Fully complete">\u2713</span>' : '';
+        var a=_asgns.find(function(x){ return x.id===id; }); if(!a) return;
+        var prev=a[field]; a[field]=checked;
+        var isDone=_done(a);
+        var card=document.querySelector('.sc-card[data-id="'+id+'"]');
+        if(card) {
+            card.classList.toggle('sc-card-done',isDone);
+            var dm=card.querySelector('.sc-done-mark');
+            if(isDone&&!dm) {
+                var chkRow=card.querySelector('.sc-chks');
+                if(chkRow){ var sp=document.createElement('span'); sp.className='sc-done-mark'; sp.title='Fully complete'; sp.textContent='\u2713'; chkRow.appendChild(sp); }
+            } else if(!isDone&&dm) { dm.remove(); }
         }
-
-        var patch = {};
-        patch[field] = checked;
-        _api('PUT', '/api/ivan/schedule/assignments/' + id, patch).catch(function (err) {
-            a[field] = prev;
-            a.isFullyComplete = _complete(a);
-            alert('Save failed: ' + err.message);
-            _render();
+        var patch={}; patch[field]=checked;
+        _api('PUT','/api/ivan/schedule/assignments/'+id,patch).catch(function(err){
+            a[field]=prev; alert('Save failed: '+err.message); _render();
         });
     }
 
     // ── Public ────────────────────────────────────────────────────────────────
     function mountSchedule(containerId) {
-        _cid = containerId;
+        _cid=containerId;
         _load(_mondayOf(new Date()));
     }
 

@@ -1,232 +1,303 @@
-/* ivan_schedule.css — Multi-driver Dispatch Board */
+/* ivan_schedule.css — Calendar Dispatch Board */
 
-.sch-loading, .sch-error {
+.sc-loading, .sc-error {
     padding: 40px; text-align: center; color: #94a3b8; font-size: 14px;
 }
-.sch-error { color: #ef4444; }
+.sc-error { color: #ef4444; }
 
-/* ── Board ─────────────────────────────────────────────────────────────────── */
-.sch-board {
-    padding: 0 16px 32px;
+/* ── Board ──────────────────────────────────────────────────────── */
+.sc-board {
     font-size: 12px;
     color: #e2e8f0;
-    max-width: 1400px;
     font-family: 'Segoe UI', system-ui, sans-serif;
+    padding-bottom: 32px;
+    overflow-x: auto;
 }
 
-/* ── Nav bar ────────────────────────────────────────────────────────────────── */
-.sch-nav {
+/* ── Nav ────────────────────────────────────────────────────────── */
+.sc-nav {
     display: flex; align-items: center; gap: 8px;
-    padding: 12px 0 10px; border-bottom: 1px solid #334155;
-    margin-bottom: 12px; flex-wrap: wrap;
-}
-.sch-week-label { flex: 1; text-align: center; font-size: 14px; font-weight: 600; color: #f1f5f9; }
-.sch-nav-btn {
-    background: #1e293b; border: 1px solid #334155; color: #94a3b8;
-    padding: 4px 11px; border-radius: 5px; cursor: pointer; font-size: 11px;
-}
-.sch-nav-btn:hover { background: #334155; color: #f1f5f9; }
-.sch-today-btn { color: #60a5fa; border-color: #60a5fa; }
-.sch-add-btn {
-    background: #2563eb; border: 1px solid #3b82f6; color: #fff;
-    padding: 4px 13px; border-radius: 5px; cursor: pointer; font-size: 11px;
-    font-weight: 600; margin-left: auto;
-}
-.sch-add-btn:hover { background: #1d4ed8; }
-
-/* ── Day section ────────────────────────────────────────────────────────────── */
-.sch-day-section { margin-bottom: 18px; }
-
-.sch-day-hdr {
-    display: flex; align-items: center; gap: 10px;
-    background: #0f1e35; border: 1px solid #1e3a5f; border-radius: 6px 6px 0 0;
-    padding: 7px 12px;
-}
-.sch-day-name { font-size: 13px; font-weight: 700; color: #93c5fd; }
-.sch-day-count { font-size: 11px; color: #475569; }
-.sch-day-add {
-    margin-left: auto; background: transparent; border: 1px solid #334155;
-    color: #64748b; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;
-}
-.sch-day-add:hover { background: #1e293b; color: #93c5fd; border-color: #60a5fa; }
-
-.sch-empty-day {
-    padding: 10px 14px; color: #475569; font-style: italic; font-size: 12px;
-    background: #0f172a; border: 1px solid #1e293b; border-top: none;
-    border-radius: 0 0 6px 6px;
-}
-
-/* ── Driver group ────────────────────────────────────────────────────────────── */
-.sch-driver-group {
-    border: 1px solid #1e3a5f; border-top: none;
-    margin-bottom: 2px;
-}
-.sch-driver-group:last-child { border-radius: 0 0 6px 6px; }
-
-.sch-driver-hdr {
-    display: flex; align-items: center; gap: 10px;
-    background: #132240; border-bottom: 1px solid #1e3a5f;
-    padding: 5px 10px;
-}
-.sch-driver-name { font-size: 12px; font-weight: 800; color: #bfdbfe; letter-spacing: 0.06em; }
-.sch-driver-dh   { font-size: 11px; color: #64748b; }
-.sch-driver-add  {
-    margin-left: auto; background: transparent; border: 1px solid #1e3a5f;
-    color: #475569; padding: 2px 7px; border-radius: 4px; cursor: pointer; font-size: 11px;
-}
-.sch-driver-add:hover { background: #1e293b; color: #60a5fa; border-color: #60a5fa; }
-
-/* ── Column header row ───────────────────────────────────────────────────────── */
-.sch-col-hdr {
-    display: flex; align-items: center; gap: 3px;
-    background: #0a1628; padding: 3px 6px;
-    font-size: 10px; font-weight: 700; color: #475569;
-    text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 10px 0 10px;
     border-bottom: 1px solid #1e293b;
+    margin-bottom: 10px;
 }
-.sch-col-hdr .sch-c-chks { display: flex; gap: 10px; justify-content: space-around; }
-.sch-col-hdr .sch-c-chks span { cursor: help; }
+.sc-week-label {
+    flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: #f1f5f9;
+}
+.sc-nav-btn {
+    background: #1e293b; border: 1px solid #334155; color: #94a3b8;
+    padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 11px;
+}
+.sc-nav-btn:hover { background: #334155; color: #f1f5f9; }
+.sc-today-btn { color: #60a5fa; border-color: #60a5fa; }
 
-/* ── Assignment row ──────────────────────────────────────────────────────────── */
-.sch-row {
-    display: flex; align-items: center; gap: 3px;
-    padding: 0 6px; min-height: 32px;
-    border-bottom: 1px solid #0f172a;
+/* ── Calendar grid ──────────────────────────────────────────────── */
+.sc-calendar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(190px, 1fr));
+    gap: 6px;
+    min-width: 980px;
+}
+
+/* ── Day column ─────────────────────────────────────────────────── */
+.sc-col {
+    background: #080f1c;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    min-height: 160px;
+}
+.sc-col-today {
+    border-color: #1d4ed8;
+    background: #090f20;
+}
+
+/* ── Column header ──────────────────────────────────────────────── */
+.sc-col-hdr {
+    padding: 7px 10px 6px;
+    border-bottom: 1px solid #1e293b;
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    text-align: center;
+}
+.sc-col-today .sc-col-hdr { border-bottom-color: #1d4ed8; }
+.sc-col-dayname {
+    font-size: 10px; font-weight: 800; color: #475569;
+    text-transform: uppercase; letter-spacing: 0.08em;
+}
+.sc-col-date { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+.sc-col-today .sc-col-date { color: #93c5fd; }
+.sc-today-pill {
+    font-size: 9px; font-weight: 800;
+    background: #1d4ed8; color: #bfdbfe;
+    padding: 1px 7px; border-radius: 10px; letter-spacing: 0.05em;
+    margin-top: 2px;
+}
+
+/* ── Empty column message ───────────────────────────────────────── */
+.sc-empty-col {
+    padding: 14px 10px; color: #334155;
+    font-size: 11px; text-align: center; font-style: italic;
+}
+
+/* ── Driver section ─────────────────────────────────────────────── */
+.sc-drv-sec {
+    margin: 5px 5px 0;
+    border: 1px solid var(--db, #334155);
+    border-radius: 6px;
+    background: var(--dc, #0f172a);
+    overflow: hidden;
+}
+
+.sc-drv-hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.35);
+    border-bottom: 1px solid var(--db, #334155);
+}
+.sc-drv-name {
+    font-size: 10px; font-weight: 800;
+    color: var(--dt, #94a3b8);
+    text-transform: uppercase; letter-spacing: 0.07em;
+}
+.sc-drv-add {
+    background: transparent;
+    border: 1px solid var(--db, #334155);
+    color: var(--dt, #64748b);
+    width: 17px; height: 17px;
+    border-radius: 3px; cursor: pointer;
+    font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; line-height: 1;
+}
+.sc-drv-add:hover { background: var(--db, #334155); }
+
+/* ── Return to base bar ─────────────────────────────────────────── */
+.sc-ret-bar {
+    padding: 3px 8px; font-size: 10px; color: #475569;
+    font-style: italic; background: rgba(0,0,0,0.2);
+    border-top: 1px solid rgba(255,255,255,0.04);
+}
+
+/* ── Assignment card ────────────────────────────────────────────── */
+.sc-card {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    background: transparent;
     transition: background 0.1s;
 }
-.sch-row:hover { background: #111d2e; }
-.sch-row:last-of-type { border-bottom: none; }
+.sc-card:hover { background: rgba(255,255,255,0.02); }
+.sc-card:last-of-type { border-bottom: none; }
 
-/* Completed row — strong green highlight */
-.sch-row.sch-row-done {
-    background: #052e16 !important;
-    border-bottom-color: #14532d;
+.sc-card-done { background: #031a0e !important; border-bottom-color: #14532d !important; }
+.sc-card-done:hover { background: #042214 !important; }
+
+/* ── Card view section ──────────────────────────────────────────── */
+.sc-card-view { padding: 5px 8px 4px; }
+
+.sc-card-top {
+    display: flex; align-items: center; gap: 4px;
+    flex-wrap: nowrap; margin-bottom: 3px;
+    min-width: 0;
 }
-.sch-row.sch-row-done:hover { background: #064e27 !important; }
-
-/* ── Column widths ───────────────────────────────────────────────────────────── */
-.sch-c         { padding: 3px 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.sch-c-seq     { width: 24px;  min-width: 24px;  text-align: center; color: #64748b; font-weight: 700; }
-.sch-c-ref     { width: 86px;  min-width: 86px;  font-family: monospace; font-size: 11px; color: #a5b4fc; }
-.sch-c-act     { width: 90px;  min-width: 90px;  }
-.sch-c-city    { flex: 1;      min-width: 110px; font-size: 12px; }
-.sch-c-time    { width: 46px;  min-width: 46px;  font-family: monospace; font-size: 11px; color: #94a3b8; }
-.sch-c-dh      { width: 56px;  min-width: 56px;  text-align: right; font-size: 11px; color: #64748b; }
-.sch-c-chks    { width: 114px; min-width: 114px; display: flex; gap: 8px; justify-content: space-around; align-items: center; }
-.sch-c-done    { width: 22px;  min-width: 22px;  text-align: center; }
-.sch-c-btn     { width: 68px;  min-width: 68px;  display: flex; gap: 3px; justify-content: flex-end; align-items: center; }
-
-.sch-dh-hi { color: #f59e0b; font-weight: 700; }
-
-/* ── Checkboxes ──────────────────────────────────────────────────────────────── */
-.sch-chk {
-    width: 14px; height: 14px; cursor: pointer;
-    accent-color: #22c55e;
-    flex-shrink: 0;
+.sc-seq {
+    font-size: 10px; font-weight: 800; color: #475569;
+    min-width: 12px; flex-shrink: 0;
 }
-.sch-row-done .sch-chk { accent-color: #4ade80; }
+.sc-card-acts { margin-left: auto; display: flex; gap: 2px; flex-shrink: 0; }
 
-/* ── Completion indicator ────────────────────────────────────────────────────── */
-.sch-done-icon {
+.sc-btn-icon {
+    background: transparent; border: none; cursor: pointer;
+    color: #334155; font-size: 12px; padding: 1px 3px;
+    border-radius: 3px; line-height: 1;
+}
+.sc-btn-icon:hover { background: #1e293b; color: #93c5fd; }
+.sc-btn-del:hover  { color: #ef4444 !important; }
+
+/* ── Action badges ──────────────────────────────────────────────── */
+.sc-badge {
+    display: inline-block; padding: 1px 5px; border-radius: 3px;
+    font-size: 9px; font-weight: 800; letter-spacing: 0.04em;
+    white-space: nowrap; flex-shrink: 0;
+}
+.sc-badge-pickup   { background: #1e3a5f; color: #60a5fa; border: 1px solid #2563eb; }
+.sc-badge-delivery { background: #431407; color: #fb923c; border: 1px solid #ea580c; }
+.sc-badge-pad      { background: #3b0764; color: #c084fc; border: 1px solid #9333ea; }
+.sc-badge-repo     { background: #1c1917; color: #78716c; border: 1px solid #44403c; }
+.sc-badge-other    { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+
+/* ── Load continuity chip ───────────────────────────────────────── */
+.sc-chip {
     display: inline-block;
-    color: #4ade80; font-size: 14px; font-weight: 900; line-height: 1;
+    font-size: 9px; font-weight: 700;
+    border: 1px solid var(--lc, #475569);
+    color: var(--lc, #64748b);
+    padding: 1px 5px; border-radius: 10px;
+    white-space: nowrap; font-family: monospace;
+    flex-shrink: 0; max-width: 72px;
+    overflow: hidden; text-overflow: ellipsis;
 }
 
-/* ── Return to base bar ──────────────────────────────────────────────────────── */
-.sch-return-bar {
-    padding: 4px 12px; font-size: 11px; color: #475569; font-style: italic;
-    background: #080f1a; border-top: 1px solid #0f172a;
-    border-radius: 0 0 4px 4px;
+/* ── Deadhead tag ───────────────────────────────────────────────── */
+.sc-dh-tag {
+    font-size: 9px; color: #f59e0b; font-weight: 700;
+    white-space: nowrap; flex-shrink: 0;
 }
 
-/* ── Notes sub-row ───────────────────────────────────────────────────────────── */
-.sch-row-notes {
-    padding: 2px 10px 4px 34px; font-size: 11px; color: #475569;
-    border-bottom: 1px solid #0a1628; background: #080f1a;
-    font-style: italic; cursor: default;
+/* ── Route & appts ──────────────────────────────────────────────── */
+.sc-route {
+    font-size: 11px; color: #cbd5e1; margin-bottom: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sch-row-done + .sch-row-notes { background: #041d10; color: #15803d; }
-
-/* ── Action badges ───────────────────────────────────────────────────────────── */
-.sch-badge {
-    display: inline-block; padding: 2px 7px; border-radius: 3px;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-    white-space: nowrap;
-}
-.sch-badge-pickup     { background: #1e3a5f; color: #60a5fa; border: 1px solid #2563eb; }
-.sch-badge-delivery   { background: #431407; color: #fb923c; border: 1px solid #ea580c; }
-.sch-badge-pad        { background: #3b0764; color: #c084fc; border: 1px solid #9333ea; }
-.sch-badge-reposition { background: #1c1917; color: #78716c; border: 1px solid #44403c; }
-.sch-badge-other      { background: #1e293b; color: #64748b; border: 1px solid #334155; }
-
-/* ── Edit / Delete buttons ───────────────────────────────────────────────────── */
-.sch-edit-btn {
-    background: #1e293b; border: 1px solid #334155; color: #60a5fa;
-    padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;
-}
-.sch-edit-btn:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
-.sch-del-btn {
-    background: none; border: none; color: #334155; cursor: pointer;
-    font-size: 12px; padding: 2px 3px; border-radius: 3px;
-}
-.sch-del-btn:hover { color: #ef4444; background: #1e293b; }
-
-/* ── Modal overlay ───────────────────────────────────────────────────────────── */
-.sch-modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-    display: flex; align-items: center; justify-content: center; z-index: 1000;
-}
-.sch-modal {
-    background: #1e293b; border: 1px solid #334155; border-radius: 10px;
-    width: 700px; max-width: 96vw; max-height: 90vh; overflow-y: auto;
-    box-shadow: 0 24px 60px rgba(0,0,0,0.7); display: flex; flex-direction: column;
-}
-.sch-modal-hdr {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 14px 20px 12px; border-bottom: 1px solid #334155;
-    font-size: 15px; font-weight: 700; color: #f1f5f9;
-}
-.sch-modal-x {
-    background: none; border: none; color: #64748b; cursor: pointer; font-size: 15px;
-    padding: 3px 6px; border-radius: 4px;
-}
-.sch-modal-x:hover { color: #f1f5f9; }
-.sch-modal-body { padding: 16px 20px; }
-.sch-modal-ftr {
-    display: flex; justify-content: flex-end; gap: 10px;
-    padding: 12px 20px 14px; border-top: 1px solid #334155;
+.sc-appts {
+    font-size: 10px; color: #64748b; margin-bottom: 2px;
+    font-family: monospace;
 }
 
-/* ── Section labels ──────────────────────────────────────────────────────────── */
-.sch-section-label {
-    font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
-    color: #475569; margin-bottom: 8px; padding-bottom: 4px;
-    border-bottom: 1px solid #1e293b;
+/* ── Checkboxes ─────────────────────────────────────────────────── */
+.sc-chks {
+    display: flex; align-items: center; gap: 5px;
+    padding: 2px 0 1px;
+}
+.sc-chk-lbl {
+    display: flex; align-items: center; gap: 2px;
+    font-size: 9px; color: #475569; cursor: pointer;
+    user-select: none;
+}
+.sc-chk-lbl:hover { color: #94a3b8; }
+.sc-chk {
+    width: 11px; height: 11px; cursor: pointer;
+    accent-color: #22c55e; flex-shrink: 0;
+}
+.sc-card-done .sc-chk { accent-color: #4ade80; }
+.sc-done-mark {
+    color: #4ade80; font-size: 12px; font-weight: 900; margin-left: 3px;
 }
 
-/* ── Form grid ───────────────────────────────────────────────────────────────── */
-.sch-form-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px;
+/* ── Notes ──────────────────────────────────────────────────────── */
+.sc-notes {
+    font-size: 10px; color: #475569; font-style: italic; margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sch-form-grid label { font-size: 11px; font-weight: 600; color: #94a3b8; display: flex; flex-direction: column; gap: 3px; }
-.sch-full { grid-column: 1 / -1; }
-.sch-inp {
-    background: #0f172a; border: 1px solid #334155; border-radius: 4px;
-    color: #e2e8f0; padding: 6px 9px; font-size: 12px; outline: none;
-    width: 100%; box-sizing: border-box; transition: border-color 0.15s;
-}
-.sch-inp:focus { border-color: #3b82f6; }
-.sch-textarea { resize: vertical; min-height: 48px; }
+.sc-card-done .sc-notes { color: #166534; }
 
-/* ── Modal buttons ───────────────────────────────────────────────────────────── */
-.sch-btn-cancel {
-    background: #1e293b; border: 1px solid #334155; color: #94a3b8;
-    padding: 7px 16px; border-radius: 5px; cursor: pointer; font-size: 12px;
+/* ── Edit form ──────────────────────────────────────────────────── */
+.sc-card-edit {
+    border-top: 1px solid #1e293b;
+    padding: 8px;
+    background: #04090f;
 }
-.sch-btn-cancel:hover { background: #334155; }
-.sch-btn-save {
+
+/* ── Add form ───────────────────────────────────────────────────── */
+.sc-add-form {
+    margin: 5px 5px 0;
+    background: #04090f;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 8px;
+}
+.sc-add-form-hdr {
+    font-size: 9px; font-weight: 800; color: #475569;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+
+/* ── Shared form grid ───────────────────────────────────────────── */
+.sc-ef-grid {
+    display: flex; flex-direction: column; gap: 5px;
+}
+.sc-ef-row2 {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 5px;
+}
+.sc-ef-row3 {
+    display: grid; grid-template-columns: 1fr 1fr 46px; gap: 5px;
+}
+.sc-ef-row-cs {
+    display: grid; grid-template-columns: 1fr 38px; gap: 5px;
+}
+.sc-ef-lbl {
+    display: flex; flex-direction: column; gap: 2px;
+    font-size: 10px; font-weight: 600; color: #64748b;
+}
+.sc-ef-full { grid-column: 1 / -1; }
+
+/* ── Form input ─────────────────────────────────────────────────── */
+.sc-inp {
+    background: #0a1425; border: 1px solid #1e293b; border-radius: 3px;
+    color: #e2e8f0; padding: 4px 6px; font-size: 11px; outline: none;
+    width: 100%; box-sizing: border-box;
+}
+.sc-inp:focus { border-color: #3b82f6; }
+
+/* ── Form buttons ───────────────────────────────────────────────── */
+.sc-ef-btns {
+    display: flex; justify-content: flex-end; gap: 6px;
+    margin-top: 7px;
+}
+.sc-btn-cancel {
+    background: #0f172a; border: 1px solid #334155; color: #64748b;
+    padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;
+}
+.sc-btn-cancel:hover { background: #1e293b; color: #94a3b8; }
+.sc-btn-save {
     background: #2563eb; border: 1px solid #3b82f6; color: #fff;
-    padding: 7px 20px; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600;
+    padding: 4px 12px; border-radius: 4px; cursor: pointer;
+    font-size: 11px; font-weight: 600;
 }
-.sch-btn-save:hover { background: #1d4ed8; }
-.sch-btn-save:disabled { background: #1e3a5f; color: #64748b; cursor: not-allowed; }
+.sc-btn-save:hover { background: #1d4ed8; }
+.sc-btn-save:disabled { background: #1e3a5f; color: #64748b; cursor: not-allowed; }
+
+/* ── Add column button ──────────────────────────────────────────── */
+.sc-add-col-btn {
+    display: block;
+    width: calc(100% - 10px);
+    margin: 5px;
+    padding: 5px 8px;
+    background: transparent;
+    border: 1px dashed #1e3a5f;
+    color: #334155;
+    border-radius: 5px; cursor: pointer;
+    font-size: 11px; text-align: center;
+    transition: all 0.1s;
+    margin-top: auto;
+}
+.sc-add-col-btn:hover { border-color: #3b82f6; color: #60a5fa; background: #0a1e38; }

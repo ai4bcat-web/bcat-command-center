@@ -431,9 +431,9 @@ var IvanScheduleApp = (function () {
         var apSt = a.apptStatus||'NEED';
         var h = '<div class="sc-card-edit" style="display:none" data-edit-for="'+a.id+'">';
         h += '<div class="sc-ef-grid">';
-        // Row: Alexei ID | TMS ID
+        // Row: PRO # | TMS ID
         h += '<div class="sc-ef-row2">';
-        h += '<label class="sc-ef-lbl">Alexei ID<input class="sc-inp" name="pro" value="'+_e(load.alexeiId||'')+'" placeholder="PRO-10421"></label>';
+        h += '<label class="sc-ef-lbl">PRO #<input class="sc-inp" name="pro" value="'+_e(load.alexeiId||'')+'" placeholder="PRO-10421"></label>';
         h += '<label class="sc-ef-lbl">TMS ID<input class="sc-inp" name="tms" value="'+_e(load.tmsId||'')+'" placeholder="TMS-8801"></label>';
         h += '</div>';
         // Row: Pickup Number (full width)
@@ -483,7 +483,7 @@ var IvanScheduleApp = (function () {
         h += '<div class="sc-add-form-hdr">New Assignment</div>';
         h += '<div class="sc-ef-grid">';
         h += '<div class="sc-ef-row2">';
-        h += '<label class="sc-ef-lbl">Alexei ID<input class="sc-inp" name="pro" placeholder="PRO-10421"></label>';
+        h += '<label class="sc-ef-lbl">PRO #<input class="sc-inp" name="pro" placeholder="PRO-10421"></label>';
         h += '<label class="sc-ef-lbl">TMS ID<input class="sc-inp" name="tms" placeholder="TMS-8801"></label>';
         h += '</div>';
         h += '<label class="sc-ef-lbl">Pickup Number<input class="sc-inp" name="punum" placeholder="PU-4421"></label>';

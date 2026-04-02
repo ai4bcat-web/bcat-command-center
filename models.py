@@ -462,6 +462,38 @@ class IvanScheduleAssignment(db.Model):
         }
 
 
+class ScheduleAuditLog(db.Model):
+    """Records every create/update/delete on assignments and loads, with full before/after snapshots."""
+    __tablename__ = 'schedule_audit_logs'
+
+    id          = db.Column(db.Integer,     primary_key=True)
+    entity_type = db.Column(db.String(50),  nullable=False)   # 'assignment' | 'load'
+    entity_id   = db.Column(db.String(50),  nullable=False)
+    action      = db.Column(db.String(20),  nullable=False)   # 'create' | 'update' | 'delete' | 'revert'
+    user_email  = db.Column(db.String(255), default='')
+    user_name   = db.Column(db.String(100), default='')
+    before_json = db.Column(db.Text,        default='{}')
+    after_json  = db.Column(db.Text,        default='{}')
+    summary     = db.Column(db.String(500), default='')
+    reverted    = db.Column(db.Boolean,     default=False)
+    created_at  = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id':         self.id,
+            'entityType': self.entity_type,
+            'entityId':   self.entity_id,
+            'action':     self.action,
+            'userEmail':  self.user_email  or '',
+            'userName':   self.user_name   or '',
+            'beforeJson': self.before_json or '{}',
+            'afterJson':  self.after_json  or '{}',
+            'summary':    self.summary     or '',
+            'reverted':   bool(self.reverted),
+            'createdAt':  self.created_at.isoformat() if self.created_at else '',
+        }
+
+
 class RelaySession(db.Model):
     """Stores Amazon Relay browser cookies for headless session reuse on Railway."""
     __tablename__ = 'relay_sessions'

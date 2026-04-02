@@ -159,6 +159,18 @@ if config.DATABASE_URL:
 
     _auto_migrate_schedule()
 
+    # Create audit log table if it doesn't exist (new table — db.create_all handles this)
+    def _ensure_audit_table():
+        try:
+            from sqlalchemy import inspect as _si
+            with app.app_context():
+                if not _si(db.engine).has_table('schedule_audit_logs'):
+                    db.create_all()
+        except Exception as _ae:
+            _log.warning('Audit table init skipped: %s', _ae)
+
+    _ensure_audit_table()
+
 _DB_ENABLED = bool(config.DATABASE_URL)
 
 finance_agent    = FinanceAgent()
@@ -1211,9 +1223,45 @@ def ivan_invoice_delete(iid):
     return jsonify({'ok': True})
 
 
-# ── Ivan Cartage — Driver Schedule ────────────────────────────────────────────
-
 # ── Ivan Cartage — Dispatch Schedule (Load + Assignment model) ─────────────────
+
+# ── Audit log helper ───────────────────────────────────────────────────────────
+
+def _write_audit(entity_type, entity_id, action, before=None, after=None, summary=''):
+    """Write one audit log record. Safe to call — never raises."""
+    try:
+        from flask_login import current_user as _cu
+        from models import ScheduleAuditLog
+        from extensions import db as _db
+        import json
+        record = ScheduleAuditLog(
+            entity_type = entity_type,
+            entity_id   = str(entity_id),
+            action      = action,
+            user_email  = getattr(_cu, 'email', '') or '',
+            user_name   = getattr(_cu, 'name',  '') or '',
+            before_json = json.dumps(before or {}),
+            after_json  = json.dumps(after  or {}),
+            summary     = (summary or '')[:500],
+        )
+        _db.session.add(record)
+        _db.session.commit()
+    except Exception as _ae:
+        _log.warning('Audit write failed: %s', _ae)
+
+def _asgn_summary(d):
+    """Build a short human-readable summary from an assignment dict."""
+    parts = []
+    load = d.get('load') or {}
+    pro = load.get('alexeiId') or ''
+    if pro: parts.append('PRO ' + pro)
+    drv = d.get('driverName') or ''
+    if drv: parts.append(drv)
+    dt = d.get('date') or ''
+    if dt: parts.append(dt)
+    act = d.get('actionType') or ''
+    if act: parts.append(act)
+    return ' — '.join(parts) if parts else (d.get('id') or '')
 
 @app.route('/api/ivan/schedule', methods=['GET'])
 @login_required
@@ -1326,15 +1374,16 @@ def ivan_assignment_create():
         de_appt          = d.get('deAppt', ''),
         pu_location_name = d.get('puLocationName', ''),
         de_location_name = d.get('deLocationName', ''),
-        driver_start_city  = d.get('driverStartCity', ''),
-        driver_start_state = (d.get('driverStartState') or '').upper(),
         pu_appt_status   = d.get('puApptStatus', 'NEED'),
         de_appt_status   = d.get('deApptStatus', 'NEED'),
         notes            = d.get('notes', ''),
     )
     _db.session.add(a)
     _db.session.commit()
-    return jsonify(a.to_dict()), 201
+    after = a.to_dict()
+    _write_audit('assignment', a.id, 'create', before={}, after=after,
+                 summary='Created ' + _asgn_summary(after))
+    return jsonify(after), 201
 
 
 @app.route('/api/ivan/schedule/assignments/<aid>', methods=['PUT'])
@@ -1343,26 +1392,25 @@ def ivan_assignment_update(aid):
     from models import IvanScheduleAssignment
     from extensions import db as _db
     a = IvanScheduleAssignment.query.get_or_404(aid)
+    before = a.to_dict()
     d = request.get_json() or {}
-    if 'loadId'          in d: a.load_id         = d['loadId'] or None
-    if 'date'            in d: a.date             = d['date']
-    if 'weekStart'       in d: a.week_start       = d['weekStart']
-    if 'driverName'      in d: a.driver_name      = d['driverName']
-    if 'sequenceNumber'  in d: a.sequence_number  = int(d['sequenceNumber'])
-    if 'actionType'      in d: a.action_type      = d['actionType']
-    if 'originCity'      in d: a.origin_city      = d['originCity']
-    if 'originState'     in d: a.origin_state     = (d['originState'] or '').upper()
-    if 'destCity'        in d: a.dest_city        = d['destCity']
-    if 'destState'       in d: a.dest_state       = (d['destState'] or '').upper()
-    if 'puAppt'          in d: a.pu_appt          = d['puAppt']
-    if 'deAppt'          in d: a.de_appt          = d['deAppt']
-    if 'notes'             in d: a.notes              = d['notes']
-    if 'puLocationName'    in d: a.pu_location_name   = d['puLocationName']
-    if 'deLocationName'    in d: a.de_location_name   = d['deLocationName']
-    if 'driverStartCity'   in d: a.driver_start_city  = d['driverStartCity']
-    if 'driverStartState'  in d: a.driver_start_state = (d['driverStartState'] or '').upper()
-    if 'puApptStatus'      in d: a.pu_appt_status     = d['puApptStatus']
-    if 'deApptStatus'      in d: a.de_appt_status     = d['deApptStatus']
+    if 'loadId'         in d: a.load_id        = d['loadId'] or None
+    if 'date'           in d: a.date            = d['date']
+    if 'weekStart'      in d: a.week_start      = d['weekStart']
+    if 'driverName'     in d: a.driver_name     = d['driverName']
+    if 'sequenceNumber' in d: a.sequence_number = int(d['sequenceNumber'])
+    if 'actionType'     in d: a.action_type     = d['actionType']
+    if 'originCity'     in d: a.origin_city     = d['originCity']
+    if 'originState'    in d: a.origin_state    = (d['originState'] or '').upper()
+    if 'destCity'       in d: a.dest_city       = d['destCity']
+    if 'destState'      in d: a.dest_state      = (d['destState'] or '').upper()
+    if 'puAppt'         in d: a.pu_appt         = d['puAppt']
+    if 'deAppt'         in d: a.de_appt         = d['deAppt']
+    if 'notes'          in d: a.notes           = d['notes']
+    if 'puLocationName' in d: a.pu_location_name = d['puLocationName']
+    if 'deLocationName' in d: a.de_location_name = d['deLocationName']
+    if 'puApptStatus'   in d: a.pu_appt_status  = d['puApptStatus']
+    if 'deApptStatus'   in d: a.de_appt_status  = d['deApptStatus']
     if 'isComplete' in d:
         a.is_complete = bool(d['isComplete'])
         if a.is_complete and not a.completed_at:
@@ -1371,7 +1419,10 @@ def ivan_assignment_update(aid):
         elif not a.is_complete:
             a.completed_at = None
     _db.session.commit()
-    return jsonify(a.to_dict())
+    after = a.to_dict()
+    _write_audit('assignment', a.id, 'update', before=before, after=after,
+                 summary='Updated ' + _asgn_summary(after))
+    return jsonify(after)
 
 
 @app.route('/api/ivan/schedule/assignments/<aid>', methods=['DELETE'])
@@ -1380,8 +1431,101 @@ def ivan_assignment_delete(aid):
     from models import IvanScheduleAssignment
     from extensions import db as _db
     a = IvanScheduleAssignment.query.get_or_404(aid)
+    before = a.to_dict()
     _db.session.delete(a)
     _db.session.commit()
+    _write_audit('assignment', aid, 'delete', before=before, after={},
+                 summary='Deleted ' + _asgn_summary(before))
+    return jsonify({'ok': True})
+
+
+# ── Audit log API ──────────────────────────────────────────────────────────────
+
+@app.route('/api/ivan/schedule/audit', methods=['GET'])
+@login_required
+def ivan_schedule_audit():
+    from models import ScheduleAuditLog
+    limit = min(int(request.args.get('limit', 50)), 200)
+    logs = (ScheduleAuditLog.query
+            .order_by(ScheduleAuditLog.created_at.desc())
+            .limit(limit).all())
+    return jsonify([l.to_dict() for l in logs])
+
+
+@app.route('/api/ivan/schedule/audit/<int:log_id>/revert', methods=['POST'])
+@login_required
+def ivan_schedule_audit_revert(log_id):
+    """Revert a logged change back to its before state."""
+    from models import ScheduleAuditLog, IvanScheduleAssignment, IvanLoad
+    from extensions import db as _db
+    import json
+
+    record = ScheduleAuditLog.query.get_or_404(log_id)
+    if record.reverted:
+        return jsonify({'error': 'Already reverted'}), 400
+
+    before = json.loads(record.before_json or '{}')
+    after  = json.loads(record.after_json  or '{}')
+
+    try:
+        if record.entity_type == 'assignment':
+            if record.action == 'update':
+                a = IvanScheduleAssignment.query.get_or_404(record.entity_id)
+                # Restore before state
+                for col, attr in [
+                    ('driverName','driver_name'), ('sequenceNumber','sequence_number'),
+                    ('actionType','action_type'), ('originCity','origin_city'),
+                    ('originState','origin_state'), ('destCity','dest_city'),
+                    ('destState','dest_state'), ('puAppt','pu_appt'), ('deAppt','de_appt'),
+                    ('puLocationName','pu_location_name'), ('deLocationName','de_location_name'),
+                    ('puApptStatus','pu_appt_status'), ('deApptStatus','de_appt_status'),
+                    ('notes','notes'), ('isComplete','is_complete'),
+                ]:
+                    if col in before:
+                        setattr(a, attr, before[col])
+                _db.session.commit()
+
+            elif record.action == 'create':
+                a = IvanScheduleAssignment.query.get(record.entity_id)
+                if a:
+                    _db.session.delete(a)
+                    _db.session.commit()
+
+            elif record.action == 'delete':
+                if not IvanScheduleAssignment.query.get(before.get('id')):
+                    a = IvanScheduleAssignment(
+                        id              = before.get('id', 'asgn-reverted'),
+                        load_id         = before.get('loadId') or None,
+                        week_start      = before.get('weekStart', ''),
+                        date            = before.get('date', ''),
+                        driver_name     = before.get('driverName', ''),
+                        sequence_number = before.get('sequenceNumber', 1),
+                        action_type     = before.get('actionType', 'PICKUP'),
+                        origin_city     = before.get('originCity', ''),
+                        origin_state    = before.get('originState', ''),
+                        dest_city       = before.get('destCity', ''),
+                        dest_state      = before.get('destState', ''),
+                        pu_appt         = before.get('puAppt', ''),
+                        de_appt         = before.get('deAppt', ''),
+                        pu_location_name = before.get('puLocationName', ''),
+                        de_location_name = before.get('deLocationName', ''),
+                        pu_appt_status  = before.get('puApptStatus', 'NEED'),
+                        de_appt_status  = before.get('deApptStatus', 'NEED'),
+                        notes           = before.get('notes', ''),
+                        is_complete     = before.get('isComplete', False),
+                    )
+                    _db.session.add(a)
+                    _db.session.commit()
+
+    except Exception as _re:
+        _log.warning('Audit revert error: %s', _re)
+        return jsonify({'error': str(_re)}), 500
+
+    record.reverted = True
+    _db.session.commit()
+    _write_audit(record.entity_type, record.entity_id, 'revert',
+                 before=after, after=before,
+                 summary='Reverted: ' + (record.summary or record.entity_id))
     return jsonify({'ok': True})
 
 

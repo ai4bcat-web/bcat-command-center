@@ -93,6 +93,15 @@ var IvanScheduleApp = (function () {
     var _missingDel = {};   // loadId -> canonical pickup assignment id
     var _auditData  = [];
     var _auditOpen  = false;
+    // Driver Day View
+    var _viewMode   = 'calendar';  // 'calendar' | 'ddv'
+    var _ddvDriver  = '';
+    var _ddvDate    = '';
+    var _ddvData    = [];          // assignments loaded for DDV
+
+    // Shipment color palette (10 distinct operational colors)
+    var SHIP_COLORS = ['#3b82f6','#f59e0b','#10b981','#f43f5e','#a78bfa',
+                       '#22d3ee','#fb923c','#84cc16','#f472b6','#e879f9'];
 
     // ── CSRF / API ────────────────────────────────────────────────────────────
     function _csrf() {
@@ -303,11 +312,17 @@ var IvanScheduleApp = (function () {
     function _render() {
         var el=document.getElementById(_cid); if(!el) return;
         _computeMissingDel();
+
+        if (_viewMode==='ddv') {
+            _renderDDV(el);
+            _bindDDV(el);
+            return;
+        }
+
         var today=_iso(new Date()), curWeek=_mondayOf(new Date());
         var drvs=_drivers();
 
         var html='<div class="sc-board">'+_navHTML();
-        html+='<div id="sc-audit-panel" style="display:none"></div>';
 
         html+='<datalist id="sc-drvs-dl">';
         drvs.forEach(function(d){ html+='<option value="'+_e(d)+'">'; });
@@ -335,19 +350,191 @@ var IvanScheduleApp = (function () {
         html+='</div>';
         el.innerHTML=html;
         _bind(el);
+        // Audit overlay lives outside the board so it persists across renders
+        _ensureAuditOverlay();
         if (_auditOpen) _loadAudit();
+    }
+
+    // ── Ensure audit overlay in DOM (outside container) ──────────────────────
+    function _ensureAuditOverlay() {
+        if (!document.getElementById('sc-audit-overlay')) {
+            var ov=document.createElement('div');
+            ov.id='sc-audit-overlay';
+            ov.className='sc-audit-overlay';
+            ov.style.display='none';
+            document.body.appendChild(ov);
+        }
     }
 
     function _navHTML() {
         var endLabel=_fmtWeek(_addDays(_viewStart,(NUM_WEEKS-1)*7));
         var label=_fmtWeek(_viewStart)+' \u2013 '+endLabel;
-        return '<div class="sc-nav">'+
-            '<button class="sc-nav-btn" data-action="prev-week">\u25c4 Prev</button>'+
-            '<span class="sc-week-label">'+label+'</span>'+
-            '<button class="sc-nav-btn" data-action="next-week">Next \u25ba</button>'+
-            '<button class="sc-nav-btn sc-today-btn" data-action="today-week">Today</button>'+
-            '<button class="sc-nav-btn sc-audit-toggle-btn" data-action="toggle-audit">\uD83D\uDCCB Audit</button>'+
-            '</div>';
+        var isCal=_viewMode==='calendar';
+        var isDDV=_viewMode==='ddv';
+        var h='<div class="sc-nav">';
+        // View toggle tabs
+        h+='<button class="sc-nav-btn sc-view-tab'+(isCal?' sc-view-tab-active':'')+'" data-action="view-calendar">\uD83D\uDDD3 Calendar</button>';
+        h+='<button class="sc-nav-btn sc-view-tab'+(isDDV?' sc-view-tab-active':'')+'" data-action="view-ddv">\uD83D\uDC64 Driver Day</button>';
+        h+='<span class="sc-nav-sep"></span>';
+        if (isCal) {
+            h+='<button class="sc-nav-btn" data-action="prev-week">\u25c4 Prev</button>';
+            h+='<span class="sc-week-label">'+label+'</span>';
+            h+='<button class="sc-nav-btn" data-action="next-week">Next \u25ba</button>';
+            h+='<button class="sc-nav-btn sc-today-btn" data-action="today-week">Today</button>';
+        }
+        h+='<button class="sc-nav-btn sc-audit-toggle-btn'+(isDDV?' sc-nav-right':'')+'" data-action="toggle-audit">\uD83D\uDCCB Audit</button>';
+        h+='</div>';
+        return h;
+    }
+
+    // ── Driver Day View ───────────────────────────────────────────────────────
+    function _renderDDV(el) {
+        var today=_iso(new Date());
+        if (!_ddvDate) _ddvDate=today;
+        var drvs=_drivers();
+        var h='<div class="sc-board sc-ddv-board">'+_navHTML();
+        // Controls bar
+        h+='<div class="sc-ddv-controls">';
+        h+='<label class="sc-ddv-lbl">Driver';
+        h+='<select class="sc-ddv-sel" data-action="ddv-driver">';
+        h+='<option value="">— Select driver —</option>';
+        drvs.forEach(function(d){ h+='<option value="'+_e(d)+'"'+(_ddvDriver===d?' selected':'')+'>'+_e(d)+'</option>'; });
+        h+='</select></label>';
+        h+='<label class="sc-ddv-lbl">Date<input class="sc-ddv-date-inp" type="date" data-action="ddv-date" value="'+_e(_ddvDate)+'"></label>';
+        h+='</div>';
+
+        if (!_ddvDriver) {
+            h+='<div class="sc-ddv-empty">Select a driver to see their day.</div>';
+            h+='</div>';
+            el.innerHTML=h;
+            return;
+        }
+
+        // Filter assignments for this driver+date from weekData + ddvData
+        var all=_allAsgns().concat(_ddvData.filter(function(a){
+            var already=_allAsgns().find(function(x){return x.id===a.id;});
+            return !already;
+        }));
+        var dayA=all.filter(function(a){
+            return a.date===_ddvDate && (a.driverName||'').trim()===_ddvDriver.trim();
+        }).sort(function(a,b){ return (a.sequenceNumber||0)-(b.sequenceNumber||0); });
+
+        var dc=_dc(_ddvDriver);
+        h+='<div class="sc-ddv-day" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+'">';
+        h+='<div class="sc-ddv-day-hdr">';
+        h+='<span class="sc-ddv-drv-name">'+_e(_ddvDriver)+'</span>';
+        h+='<span class="sc-ddv-date-label">'+_e(_ddvDate)+'</span>';
+        h+='<span class="sc-ddv-count">'+dayA.length+' stop'+(dayA.length!==1?'s':'')+'</span>';
+        h+='</div>';
+
+        if (!dayA.length) {
+            h+='<div class="sc-ddv-empty">No assignments for this driver on '+_e(_ddvDate)+'.</div>';
+        } else {
+            var dh=_driverDH(dayA);
+            dayA.forEach(function(a,i) {
+                h+=_ddvCardHTML(a, dh[i].toDH, i+1, dayA.length, dc);
+            });
+        }
+        h+='</div></div>';
+        el.innerHTML=h;
+    }
+
+    function _ddvCardHTML(a, dhMi, step, total, dc) {
+        var isDone=_done(a), load=a.load||{};
+        var pro=load.alexeiId||'', tmsId=load.tmsId||'', puNum=load.puNumber||'';
+        var shipRef=load.shipmentRef||'';
+        var label=ACTION_LABEL[a.actionType]||a.actionType||'?';
+        var actCss=ACTION_CSS[a.actionType]||'sc-badge-other';
+        var loadType=load.loadType||'', carrierName=load.carrierName||'';
+        var ltCss=LOAD_TYPE_CSS[loadType]||'';
+        var orig=[a.originCity,a.originState].filter(Boolean).join(', ');
+        var dest=[a.destCity,a.destState].filter(Boolean).join(', ');
+        var puLoc=a.puLocationName||'', deLoc=a.deLocationName||'';
+        var isPU=a.actionType==='PICKUP', isDE=a.actionType==='DELIVERY';
+
+        var shipColor=(!isDone&&load.shipmentColor)?load.shipmentColor:'';
+        var borderStyle=shipColor?'border-left:3px solid '+shipColor+';':'';
+
+        var cls='sc-ddv-card'+(isDone?' sc-card-done':'');
+        var h='<div class="'+cls+'" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+';'+borderStyle+'">';
+        // Step number
+        h+='<div class="sc-ddv-step"><span class="sc-ddv-step-num">'+step+'</span>';
+        if (step<total) h+='<span class="sc-ddv-step-line"></span>';
+        h+='</div>';
+        h+='<div class="sc-ddv-content">';
+        // Row 1: action badge | PRO | load type | DH
+        h+='<div class="sc-ddv-row1">';
+        h+='<span class="sc-badge '+actCss+'">'+_e(label)+'</span>';
+        if (pro) h+=' <span class="sc-ddv-pro">'+_e(pro)+'</span>';
+        else h+=' <span class="sc-ntb-badge">NEED TO BUILD</span>';
+        if (shipRef) h+=' <span class="sc-ddv-ref">'+_e(shipRef)+'</span>';
+        if (loadType&&ltCss) h+=' <span class="sc-load-type-badge '+ltCss+'">'+_e(loadType)+'</span>';
+        if (dhMi>0) h+=' <span class="sc-dh-tag">DH '+dhMi+' mi</span>';
+        if (isDone) h+=' <span class="sc-ddv-done-pill">\u2713 DONE</span>';
+        h+='</div>';
+        // Row 2: locations
+        var locParts=[];
+        if (!isDE&&(puLoc||orig)) locParts.push((puLoc?puLoc+' ':'')+orig);
+        if (!isPU&&(deLoc||dest))  locParts.push('\u2192 '+(deLoc?deLoc+' ':'')+dest);
+        if (locParts.length) h+='<div class="sc-ddv-locs">'+locParts.map(_e).join(' ')+'</div>';
+        // Row 3: appt details
+        var apptParts=[];
+        if (!isDE) {
+            var puAT=a.puApptType||'APPT';
+            if (puAT==='FCFS') apptParts.push('PU FCFS '+([a.puFcfsStart,a.puFcfsEnd].filter(Boolean).join('\u2013')));
+            else if (a.puAppt) apptParts.push('PU '+a.puAppt+' ('+( a.puApptStatus||'NEED')+')');
+            else apptParts.push('PU: '+(a.puApptStatus||'NEED'));
+        }
+        if (!isPU) {
+            var deAT=a.deApptType||'APPT';
+            if (deAT==='FCFS') apptParts.push('DE FCFS '+([a.deFcfsStart,a.deFcfsEnd].filter(Boolean).join('\u2013')));
+            else if (a.deAppt) apptParts.push('DE '+a.deAppt+' ('+(a.deApptStatus||'NEED')+')');
+            else apptParts.push('DE: '+(a.deApptStatus||'NEED'));
+        }
+        if (apptParts.length) h+='<div class="sc-ddv-appt">'+apptParts.map(_e).join(' \u00b7 ')+'</div>';
+        // Row 4: IDs + carrier
+        var ids=[];
+        if (tmsId) ids.push('TMS: '+tmsId);
+        if (puNum) ids.push('PU#: '+puNum);
+        if (carrierName) ids.push(carrierName);
+        if (ids.length) h+='<div class="sc-ddv-ids">'+_e(ids.join(' \u00b7 '))+'</div>';
+        if (a.notes) h+='<div class="sc-ddv-notes">'+_e(a.notes)+'</div>';
+        h+='</div></div>';
+        return h;
+    }
+
+    function _bindDDV(el) {
+        el.addEventListener('change', function(e) {
+            var t=e.target;
+            if (t.dataset.action==='ddv-driver') { _ddvDriver=t.value; _ddvLoadData(); }
+            else if (t.dataset.action==='ddv-date') { _ddvDate=t.value; _ddvLoadData(); }
+        });
+        el.addEventListener('click', function(e) {
+            var b=e.target.closest('[data-action]'); if (!b) return;
+            switch (b.dataset.action) {
+                case 'view-calendar': _viewMode='calendar'; _reload(); break;
+                case 'view-ddv':      _viewMode='ddv';      _render(); break;
+                case 'toggle-audit':  _toggleAudit(); break;
+            }
+        });
+    }
+
+    function _ddvLoadData() {
+        // First try to serve from existing weekData
+        if (_ddvDate && _ddvDriver) {
+            var week=_mondayOf(new Date(_ddvDate+'T00:00:00'));
+            if (_weekData[week]) { _render(); return; }
+            // Fetch week data
+            _api('GET','/api/ivan/schedule?weekStart='+week).then(function(data){
+                _weekData[week]={
+                    assignments: Array.isArray(data)?data:(data.assignments||[]),
+                    loads:       Array.isArray(data)?[]:(data.loads||[]),
+                };
+                _render();
+            }).catch(function(){ _render(); });
+        } else {
+            _render();
+        }
     }
 
     function _colHTML(day, dayA, isToday) {
@@ -381,11 +568,17 @@ var IvanScheduleApp = (function () {
         var dc=isUnassigned?UNASSIGNED_COLOR:_dc(drv);
         var dh=_driverDH(sorted);
         var retDH=dh.length?dh[dh.length-1].retDH:0;
+        // Find load of first assignment for paint bucket context (first loadId in section)
+        var firstLoadId=sorted.length&&sorted[0].loadId?sorted[0].loadId:'';
         var h='<div class="sc-drv-sec" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+'">';
         h+='<div class="sc-drv-hdr">';
         h+='<span class="sc-drv-name">'+_e(drv)+'</span>';
+        h+='<div class="sc-drv-hdr-acts">';
+        if (firstLoadId) {
+            h+='<button class="sc-drv-color-btn" data-action="open-color-picker" data-load-id="'+_e(firstLoadId)+'" title="\uD83C\uDFA8 Set shipment color">\uD83C\uDFA8</button>';
+        }
         h+='<button class="sc-drv-add" data-action="show-add" data-day="'+day+'" data-driver="'+_e(isUnassigned?'':drv)+'" title="Add move for this driver">+</button>';
-        h+='</div>';
+        h+='</div></div>';
         sorted.forEach(function(a,i){ h+=_cardHTML(a,dh[i].toDH,dc); });
         if (retDH>0) h+='<div class="sc-ret-bar">\u21a9 Base: '+retDH+' mi</div>';
         h+='</div>';
@@ -396,6 +589,7 @@ var IvanScheduleApp = (function () {
     function _cardHTML(a, dhMi, dc) {
         var isDone=_done(a), load=a.load||{};
         var pro=load.alexeiId||'', tmsId=load.tmsId||'', puNum=load.puNumber||'';
+        var shipRef=load.shipmentRef||'', shipColor=load.shipmentColor||'';
         var lc=a.loadId?_lc(a.loadId):null;
         var label=ACTION_LABEL[a.actionType]||a.actionType||'?';
         var actCss=ACTION_CSS[a.actionType]||'sc-badge-other';
@@ -413,31 +607,55 @@ var IvanScheduleApp = (function () {
         var isBcat  =loadType==='BCAT BROKER';
         var isPU    =a.actionType==='PICKUP';
         var isDE    =a.actionType==='DELIVERY';
+        var isPAD   =a.actionType==='PICKUP_AND_DELIVER';
+        // Checkboxes only appear on delivery/P&D legs (req 12)
+        var isDeliveryLeg=isDE||isPAD;
         // Missing delivery: only on canonical pickup assignment
         var isMissingDel=isPU&&a.loadId&&_missingDel[a.loadId]===a.id;
+        // Shipment color accent (non-done only)
+        var shipColorStyle=(!isDone&&shipColor)?'border-left:3px solid '+shipColor+';background:'+shipColor+'18;':'';
 
         var cls='sc-card'+(isDone?' sc-card-done':'')+(isMissingDel?' sc-card-missing-del':'');
-        var h='<div class="'+cls+'" data-id="'+a.id+'" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+'" title="Double-click to edit">';
+        var h='<div class="'+cls+'" data-id="'+a.id+'" style="--db:'+dc.b+';--dc:'+dc.bg+';--dt:'+dc.t+';'+shipColorStyle+'" title="Double-click to edit">';
         h+='<div class="sc-card-view">';
 
-        // ── Line 1: Inline driver dropdown · seq input | edit/del ──
+        // ── Line 1: Inline driver dropdown · seq input | actions ──
         h+='<div class="sc-cv-hdr">';
         h+='<div class="sc-cv-drv">';
-        // Inline driver select
         h+=_driverSelInline(a.driverName||'', a.id);
-        // Inline seq input
         h+='<span class="sc-cv-seq-wrap">\u00b7\u00a0<input class="sc-seq-input" type="number" min="0" step="1"'+
-           ' value="'+_e(seq>0?seq:'')+'" data-action="inline-seq" data-id="'+a.id+'" title="Sequence (click to edit)"></span>';
+           ' value="'+_e(seq>0?seq:'')+'" data-action="inline-seq" data-id="'+a.id+'" title="Sequence"></span>';
         h+='</div>';
         h+='<div class="sc-card-acts">';
-        h+='<button class="sc-btn-icon" data-action="toggle-edit" data-id="'+a.id+'" title="Edit (or double-click)">\u270e</button>';
+        if (!isDone&&a.loadId) {
+            h+='<button class="sc-btn-icon sc-color-btn" data-action="open-color-picker" data-load-id="'+_e(a.loadId)+'" title="\uD83C\uDFA8 Shipment color">\uD83C\uDFA8</button>';
+        }
+        h+='<button class="sc-btn-icon" data-action="toggle-edit" data-id="'+a.id+'" title="Edit">\u270e</button>';
         h+='<button class="sc-btn-icon sc-btn-del" data-action="del-asgn" data-id="'+a.id+'" title="Delete">\u00d7</button>';
         h+='</div></div>';
 
-        // ── Line 2: Action badge | PRO# chip | Load type | DH ──
+        // ── Color swatch row (hidden until open) ──
+        if (!isDone&&a.loadId) {
+            h+='<div class="sc-color-picker-row" id="sc-cp-'+_e(a.loadId)+'" style="display:none">';
+            SHIP_COLORS.forEach(function(c){
+                var isSel=c===shipColor;
+                h+='<button class="sc-color-swatch'+(isSel?' sc-color-swatch-sel':'')+'" data-action="apply-color"'+
+                   ' data-load-id="'+_e(a.loadId)+'" data-color="'+_e(c)+'" style="background:'+c+'" title="'+c+'"></button>';
+            });
+            h+='<button class="sc-color-swatch sc-color-clear" data-action="apply-color" data-load-id="'+_e(a.loadId)+'" data-color="" title="Clear color">\u00d7</button>';
+            h+='</div>';
+        }
+
+        // ── Line 2: Action badge | PRO# / NEED TO BUILD | ShipRef | Load type | DH ──
         h+='<div class="sc-cv-badges">';
         h+='<span class="sc-badge '+actCss+'">'+_e(label)+'</span>';
-        if (pro&&lc) h+=' <span class="sc-chip" style="--lc:'+lc+'">'+_e(pro)+'</span>';
+        if (pro) {
+            if (lc) h+=' <span class="sc-chip" style="--lc:'+lc+'" title="PRO# (click to copy)" data-copyval="'+_e(pro)+'">'+_e(pro)+'</span>';
+            else    h+=' <span class="sc-pro-txt" title="PRO#">'+_e(pro)+'</span>';
+        } else {
+            h+=' <span class="sc-ntb-badge" title="No PRO# — needs to be built">NEED TO BUILD</span>';
+        }
+        if (shipRef) h+=' <span class="sc-ship-ref" title="Shipment ref (click to copy)" data-copyval="'+_e(shipRef)+'">'+_e(shipRef)+'</span>';
         if (loadType) {
             var ltCss=LOAD_TYPE_CSS[loadType]||'sc-lt-other';
             h+=' <span class="sc-load-type-badge '+ltCss+'">'+_e(loadType)+'</span>';
@@ -445,12 +663,12 @@ var IvanScheduleApp = (function () {
         if (dhMi>0) h+=' <span class="sc-dh-tag">'+dhMi+' mi</span>';
         h+='</div>';
 
-        // ── Line 3: TMS/PU# + carrier + leg progress ──
+        // ── Line 3: TMS/PU# IDs (selectable text) ──
         var ids=[];
         if (tmsId) ids.push('TMS: '+tmsId);
         if (puNum) ids.push('PU#: '+puNum);
         if (isBcat&&carrierName) ids.push('\u2022 '+carrierName);
-        if (ids.length) h+='<div class="sc-load-ids">'+_e(ids.join(' \u00b7 '))+'</div>';
+        if (ids.length) h+='<div class="sc-load-ids sc-selectable">'+_e(ids.join(' \u00b7 '))+'</div>';
 
         // Leg progress (only when counts > default)
         if (a.loadId&&(pickCount>1||dropCount>1)) {
@@ -460,22 +678,22 @@ var IvanScheduleApp = (function () {
             h+='<div class="sc-leg-progress">PU '+puDone+'/'+pickCount+' \u00b7 DE '+deDone+'/'+dropCount+'</div>';
         }
 
-        // ── Lines 4-5: Locations (filtered by action type) ──
+        // ── Lines 4-5: Locations ──
         if (!isDE&&(puLoc||orig)) {
             h+='<div class="sc-route sc-route-pu">';
-            if (puLoc) h+='<span class="sc-loc-name">'+_e(puLoc)+'</span> ';
-            if (orig)  h+='<span class="sc-loc-city">'+_e(orig)+'</span>';
+            if (puLoc) h+='<span class="sc-loc-name sc-selectable">'+_e(puLoc)+'</span> ';
+            if (orig)  h+='<span class="sc-loc-city sc-selectable">'+_e(orig)+'</span>';
             h+='</div>';
         }
         if (!isPU&&(deLoc||dest)) {
             h+='<div class="sc-route sc-route-de">';
             h+='\u2192 ';
-            if (deLoc) h+='<span class="sc-loc-name">'+_e(deLoc)+'</span> ';
-            if (dest)  h+='<span class="sc-loc-city">'+_e(dest)+'</span>';
+            if (deLoc) h+='<span class="sc-loc-name sc-selectable">'+_e(deLoc)+'</span> ';
+            if (dest)  h+='<span class="sc-loc-city sc-selectable">'+_e(dest)+'</span>';
             h+='</div>';
         }
 
-        // ── Line 6: Appt info (filtered by action type, FCFS-aware) ──
+        // ── Line 6: Appt info ──
         var showPU=!isDE, showDE=!isPU;
         if (showPU||showDE) {
             h+='<div class="sc-appt-row">';
@@ -483,9 +701,9 @@ var IvanScheduleApp = (function () {
                 var puAT=(a.puApptType||'APPT');
                 if (puAT==='FCFS') {
                     var puRange=[a.puFcfsStart,a.puFcfsEnd].filter(Boolean).join('\u2013');
-                    h+='<span class="sc-appts">PU FCFS'+(puRange?' '+puRange:'')+'</span>';
+                    h+='<span class="sc-appts sc-selectable">PU FCFS'+(puRange?' '+puRange:'')+'</span>';
                 } else {
-                    if (a.puAppt) { h+='<span class="sc-appts">PU '+_e(a.puAppt)+'</span><span class="sc-apst '+puCss+'">'+_e(puSt)+'</span>'; }
+                    if (a.puAppt) { h+='<span class="sc-appts sc-selectable">PU '+_e(a.puAppt)+'</span><span class="sc-apst '+puCss+'">'+_e(puSt)+'</span>'; }
                     else          { h+='<span class="sc-apst-sm '+puCss+'">PU: '+_e(puSt)+'</span>'; }
                 }
             }
@@ -493,9 +711,9 @@ var IvanScheduleApp = (function () {
                 var deAT=(a.deApptType||'APPT');
                 if (deAT==='FCFS') {
                     var deRange=[a.deFcfsStart,a.deFcfsEnd].filter(Boolean).join('\u2013');
-                    h+='<span class="sc-appts">DE FCFS'+(deRange?' '+deRange:'')+'</span>';
+                    h+='<span class="sc-appts sc-selectable">DE FCFS'+(deRange?' '+deRange:'')+'</span>';
                 } else {
-                    if (a.deAppt) { h+='<span class="sc-appts">DE '+_e(a.deAppt)+'</span><span class="sc-apst '+deCss+'">'+_e(deSt)+'</span>'; }
+                    if (a.deAppt) { h+='<span class="sc-appts sc-selectable">DE '+_e(a.deAppt)+'</span><span class="sc-apst '+deCss+'">'+_e(deSt)+'</span>'; }
                     else          { h+='<span class="sc-apst-sm '+deCss+'">DE: '+_e(deSt)+'</span>'; }
                 }
             }
@@ -503,25 +721,25 @@ var IvanScheduleApp = (function () {
         }
 
         // ── Line 7: Notes ──
-        if (a.notes) { var n=a.notes; h+='<div class="sc-notes">'+_e(n.length>60?n.substring(0,60)+'\u2026':n)+'</div>'; }
+        if (a.notes) { var n=a.notes; h+='<div class="sc-notes sc-selectable">'+_e(n.length>60?n.substring(0,60)+'\u2026':n)+'</div>'; }
 
-        // ── E2OPEN CLOSED checkbox (E2OPEN loads only) ──
-        if (isE2open) {
-            h+='<div class="sc-e2open-row">';
-            h+='<label class="sc-chk-lbl sc-e2open-lbl" title="Mark E2OPEN system closed">';
-            h+='<input type="checkbox" class="sc-chk"'+(a.e2openClosed?' checked':'')+
-               ' data-action="toggle-chk" data-id="'+a.id+'" data-field="e2openClosed">';
-            h+='<span>E2OPEN CLOSED</span></label>';
+        // ── Checkboxes — DELIVERY legs only (req 12) ──
+        if (isDeliveryLeg) {
+            if (isE2open) {
+                h+='<div class="sc-e2open-row">';
+                h+='<label class="sc-chk-lbl sc-e2open-lbl" title="Mark E2OPEN system closed">';
+                h+='<input type="checkbox" class="sc-chk"'+(a.e2openClosed?' checked':'')+
+                   ' data-action="toggle-chk" data-id="'+a.id+'" data-field="e2openClosed" data-propagate="1">';
+                h+='<span>E2OPEN CLOSED</span></label>';
+                h+='</div>';
+            }
+            h+='<div class="sc-done-row">';
+            h+='<label class="sc-chk-lbl sc-done-lbl" title="Mark shipment complete">';
+            h+='<input type="checkbox" class="sc-chk sc-done-chk"'+(isDone?' checked':'')+
+               ' data-action="toggle-chk" data-id="'+a.id+'" data-field="isComplete" data-propagate="1">';
+            h+='<span>'+(isDone?'\u2713 DONE':'DONE')+'</span></label>';
             h+='</div>';
         }
-
-        // ── DONE toggle ──
-        h+='<div class="sc-done-row">';
-        h+='<label class="sc-chk-lbl sc-done-lbl" title="Mark complete">';
-        h+='<input type="checkbox" class="sc-chk sc-done-chk"'+(isDone?' checked':'')+
-           ' data-action="toggle-chk" data-id="'+a.id+'" data-field="isComplete">';
-        h+='<span>'+(isDone?'\u2713 DONE':'DONE')+'</span></label>';
-        h+='</div>';
 
         h+='</div>'; // sc-card-view
 
@@ -629,6 +847,9 @@ var IvanScheduleApp = (function () {
         h+='</div>'; // ef-grid
         h+='<div class="sc-ef-btns">';
         h+='<button class="sc-btn-cancel" data-action="cancel-edit" data-id="'+a.id+'">Cancel</button>';
+        if (a.loadId) {
+            h+='<button class="sc-btn-move" data-action="move-shipment" data-load-id="'+a.loadId+'" title="Move entire shipment (all legs) by N days">\u21c4 Move Shipment</button>';
+        }
         h+='<button class="sc-btn-save" data-action="save-edit" data-id="'+a.id+'">Save</button>';
         h+='</div>';
         h+='</div>'; // sc-card-edit
@@ -843,11 +1064,25 @@ var IvanScheduleApp = (function () {
     function _bind(el) {
         // Click
         el.addEventListener('click', function(e) {
+            // Copy-on-click for key ID chips
+            var copyEl=e.target.closest('[data-copyval]');
+            if (copyEl && !e.target.closest('button,input,select,a')) {
+                var val=copyEl.dataset.copyval;
+                if (val) {
+                    navigator.clipboard && navigator.clipboard.writeText(val).catch(function(){});
+                    copyEl.title='Copied!';
+                    setTimeout(function(){ copyEl.title=copyEl.dataset.copytitle||''; },1500);
+                }
+                // Don't return — let other handlers run too
+            }
+
             var b=e.target.closest('[data-action]'); if (!b) return;
             switch (b.dataset.action) {
                 case 'prev-week':            _loadMultiWeek(_addDays(_viewStart,-7)); break;
                 case 'next-week':            _loadMultiWeek(_addDays(_viewStart, 7)); break;
                 case 'today-week':           _loadMultiWeek(_mondayOf(new Date()));   break;
+                case 'view-calendar':        _viewMode='calendar'; _reload(); break;
+                case 'view-ddv':             _viewMode='ddv'; if(!_ddvDate)_ddvDate=_iso(new Date()); _render(); break;
                 case 'toggle-edit':          _toggleEdit(b.dataset.id);               break;
                 case 'cancel-edit':          _cancelEdit(b.dataset.id);               break;
                 case 'save-edit':            _saveEdit(b.dataset.id);                 break;
@@ -859,7 +1094,10 @@ var IvanScheduleApp = (function () {
                 case 'cancel-delivery-form': _cancelDeliveryForm(b.dataset.id);       break;
                 case 'save-delivery':        _saveDelivery(b.dataset.id);             break;
                 case 'toggle-audit':         _toggleAudit();                          break;
-                case 'revert-audit':         _revertAudit(b.dataset.logId);           break;
+                case 'revert-audit':         _revertAudit(parseInt(b.dataset.logId,10)); break;
+                case 'open-color-picker':    _openColorPicker(b.dataset.loadId); break;
+                case 'apply-color':          _applyShipmentColor(b.dataset.loadId, b.dataset.color); break;
+                case 'move-shipment':        _promptMoveShipment(b.dataset.loadId); break;
             }
         });
 
@@ -1145,69 +1383,177 @@ var IvanScheduleApp = (function () {
             });
     }
 
-    // ── DONE / checkbox toggle (optimistic) ──────────────────────────────────
+    // ── DONE / checkbox toggle — propagates to all legs of same loadId ───────
     function _toggleChk(id, field, checked) {
         var a=_allAsgns().find(function(x){ return x.id===id; }); if (!a) return;
-        var prev=a[field]; a[field]=checked;
-        var card=document.querySelector('.sc-card[data-id="'+id+'"]');
-        if (card) {
-            card.classList.toggle('sc-card-done', _done(a));
+        var loadId=a.loadId||null;
+
+        // Build list of assignments to update: this one + all sibling legs if propagate
+        var targets=[a];
+        if (loadId) {
+            _allAsgns().forEach(function(x){
+                if (x.id!==id && x.loadId===loadId) targets.push(x);
+            });
+        }
+
+        var prevValues={};
+        targets.forEach(function(t){ prevValues[t.id]=t[field]; t[field]=checked; });
+
+        // Optimistic UI update for all cards
+        targets.forEach(function(t){
+            var card=document.querySelector('.sc-card[data-id="'+t.id+'"]');
+            if (!card) return;
+            card.classList.toggle('sc-card-done', _done(t));
             if (field==='isComplete') {
                 var sp=card.querySelector('.sc-done-lbl span');
                 if (sp) sp.textContent=checked?'\u2713 DONE':'DONE';
             }
-        }
+        });
+
         var patch={}; patch[field]=checked;
-        _api('PUT','/api/ivan/schedule/assignments/'+id,patch).catch(function(err){
-            a[field]=prev; alert('Save failed: '+err.message); _render();
+        var promises=targets.map(function(t){
+            return _api('PUT','/api/ivan/schedule/assignments/'+t.id,patch);
+        });
+        Promise.all(promises).catch(function(err){
+            targets.forEach(function(t){ t[field]=prevValues[t.id]; });
+            alert('Save failed: '+err.message);
+            _render();
         });
     }
 
-    // ── Audit panel ───────────────────────────────────────────────────────────
+    // ── Shipment color picker ─────────────────────────────────────────────────
+    function _openColorPicker(loadId) {
+        // Toggle color picker row for this loadId
+        document.querySelectorAll('.sc-color-picker-row').forEach(function(r){
+            r.style.display=(r.id==='sc-cp-'+loadId && r.style.display==='none')?'flex':'none';
+        });
+    }
+    function _applyShipmentColor(loadId, color) {
+        if (!loadId) return;
+        // Optimistic update on all cards for this loadId
+        var all=_allAsgns();
+        all.forEach(function(a){
+            if (a.loadId===loadId && a.load) a.load.shipmentColor=color;
+        });
+        // Update all loads in weekData
+        Object.keys(_weekData).forEach(function(w){
+            (_weekData[w].loads||[]).forEach(function(l){ if(l.id===loadId) l.shipmentColor=color; });
+        });
+        _api('PUT','/api/ivan/loads/'+loadId,{shipmentColor:color})
+            .then(function(){ _render(); })
+            .catch(function(err){ alert('Color save failed: '+err.message); _render(); });
+    }
+
+    // ── Move shipment as a unit ───────────────────────────────────────────────
+    function _promptMoveShipment(loadId) {
+        if (!loadId) return;
+        var raw=prompt('Move all legs by how many days? (negative = earlier, positive = later)');
+        if (raw===null||raw==='') return;
+        var n=parseInt(raw,10);
+        if (isNaN(n)||n===0) { alert('Enter a non-zero integer.'); return; }
+        _api('POST','/api/ivan/schedule/shipments/'+loadId+'/move',{offsetDays:n})
+            .then(function(r){ _reload(); })
+            .catch(function(err){ alert('Move failed: '+err.message); });
+    }
+
+    // ── Audit panel (fixed overlay) ───────────────────────────────────────────
+    function _getAuditPanel() {
+        _ensureAuditOverlay();
+        return document.getElementById('sc-audit-overlay');
+    }
     function _toggleAudit() {
+        _ensureAuditOverlay();
         _auditOpen=!_auditOpen;
-        var panel=document.getElementById('sc-audit-panel');
-        var btn=document.querySelector('[data-action="toggle-audit"]');
-        if (panel) panel.style.display=_auditOpen?'block':'none';
-        if (btn) btn.classList.toggle('sc-audit-toggle-active', _auditOpen);
+        var panel=_getAuditPanel();
+        if (panel) panel.style.display=_auditOpen?'flex':'none';
+        // Toggle button active state (there may be two: nav + DDV nav)
+        document.querySelectorAll('[data-action="toggle-audit"]').forEach(function(btn){
+            btn.classList.toggle('sc-audit-toggle-active', _auditOpen);
+        });
         if (_auditOpen) _loadAudit();
     }
     function _loadAudit() {
-        var panel=document.getElementById('sc-audit-panel');
-        if (panel) panel.innerHTML='<div class="sc-audit-loading">Loading audit log\u2026</div>';
+        var panel=_getAuditPanel();
+        if (panel) panel.innerHTML='<div class="sc-audit-overlay-inner"><div class="sc-audit-hdr">'+
+            '<span style="color:#e2e8f0;font-weight:700;font-size:13px;">Recent Changes</span>'+
+            '<button class="sc-nav-btn" onclick="document.getElementById(\'sc-audit-overlay\').style.display=\'none\'; IvanScheduleApp&&(IvanScheduleApp._auditClose&&IvanScheduleApp._auditClose());" style="margin-left:auto">Close \u00d7</button>'+
+            '</div><div class="sc-audit-loading" style="color:#94a3b8;padding:24px;text-align:center">Loading audit log\u2026</div></div>';
         _api('GET','/api/ivan/schedule/audit?limit=100')
             .then(function(data){ _auditData=data; _renderAuditPanel(); })
             .catch(function(err){
-                if (panel) panel.innerHTML='<div class="sc-audit-error">Failed to load: '+_e(err.message)+'</div>';
+                var p=_getAuditPanel();
+                if (p) p.innerHTML='<div class="sc-audit-overlay-inner">'+
+                    '<div class="sc-audit-hdr"><span style="color:#e2e8f0;font-weight:700">Audit Log</span>'+
+                    '<button class="sc-nav-btn" onclick="document.getElementById(\'sc-audit-overlay\').style.display=\'none\'">Close \u00d7</button></div>'+
+                    '<div style="color:#f87171;padding:20px;font-size:12px">Failed to load: '+_e(err.message)+'</div></div>';
             });
     }
     function _renderAuditPanel() {
-        var panel=document.getElementById('sc-audit-panel'); if (!panel) return;
-        if (!_auditData.length) { panel.innerHTML='<div class="sc-audit-empty">No changes recorded yet.</div>'; return; }
-        var h='<div class="sc-audit-inner"><div class="sc-audit-hdr"><span>Recent Changes</span><button class="sc-nav-btn" data-action="toggle-audit">Close \u00d7</button></div><div class="sc-audit-list">';
-        _auditData.forEach(function(log) {
-            var actCls='sc-audit-act-'+log.action;
-            h+='<div class="sc-audit-row'+(log.reverted?' sc-audit-reverted':'')+'">';
-            h+='<div class="sc-audit-meta">';
-            h+='<span class="sc-audit-time">'+_e(_relTime(log.createdAt))+'</span>';
-            h+='<span class="sc-audit-badge '+actCls+'">'+_e(log.action)+'</span>';
-            h+='<span class="sc-audit-user">'+_e(log.userName||log.userEmail||'?')+'</span>';
+        var panel=_getAuditPanel(); if (!panel) return;
+        var h='<div class="sc-audit-overlay-inner">';
+        h+='<div class="sc-audit-hdr"><span style="color:#e2e8f0;font-weight:700;font-size:13px">Recent Changes ('+_auditData.length+')</span>';
+        h+='<button class="sc-nav-btn" data-action="toggle-audit" style="margin-left:auto">Close \u00d7</button></div>';
+        if (!_auditData.length) {
+            h+='<div style="color:#64748b;padding:24px;text-align:center;font-size:12px">No changes recorded yet.</div>';
+        } else {
+            h+='<div class="sc-audit-list">';
+            _auditData.forEach(function(log) {
+                var actCls='sc-audit-act-'+log.action;
+                h+='<div class="sc-audit-row'+(log.reverted?' sc-audit-reverted':'')+'">';
+                h+='<div class="sc-audit-meta">';
+                h+='<span class="sc-audit-time">'+_e(_relTime(log.createdAt))+'</span>';
+                h+='<span class="sc-audit-badge '+actCls+'">'+_e(log.action)+'</span>';
+                h+='<span class="sc-audit-user" title="'+_e(log.userEmail||'')+'">'+_e(log.userName||log.userEmail||'system')+'</span>';
+                h+='</div>';
+                h+='<div class="sc-audit-summary" style="color:#cbd5e1">'+_e(log.summary||log.entityId)+'</div>';
+                // Field-level diff
+                var diffHtml=_auditDiff(log);
+                if (diffHtml) h+='<div class="sc-audit-diff">'+diffHtml+'</div>';
+                if (!log.reverted&&log.action!=='revert') {
+                    h+='<button class="sc-audit-revert-btn" data-action="revert-audit" data-log-id="'+log.id+'">\u21a9 Revert</button>';
+                } else if (log.reverted) {
+                    h+='<span class="sc-audit-reverted-tag">reverted</span>';
+                }
+                h+='</div>';
+            });
             h+='</div>';
-            h+='<div class="sc-audit-summary">'+_e(log.summary||log.entityId)+'</div>';
-            if (!log.reverted&&log.action!=='revert') {
-                h+='<button class="sc-audit-revert-btn" data-action="revert-audit" data-log-id="'+log.id+'">\u21a9 Revert</button>';
-            } else if (log.reverted) {
-                h+='<span class="sc-audit-reverted-tag">reverted</span>';
-            }
-            h+='</div>';
-        });
-        h+='</div></div>';
+        }
+        h+='</div>';
         panel.innerHTML=h;
+        // Re-bind click for revert buttons inside overlay
+        panel.querySelectorAll('[data-action="revert-audit"]').forEach(function(btn){
+            btn.addEventListener('click', function(){ _revertAudit(parseInt(btn.dataset.logId,10)); });
+        });
+        panel.querySelectorAll('[data-action="toggle-audit"]').forEach(function(btn){
+            btn.addEventListener('click', function(){ _toggleAudit(); });
+        });
+    }
+    function _auditDiff(log) {
+        // Parse before/after JSON and show changed fields
+        var before={}, after={};
+        try { before=JSON.parse(log.beforeJson||'{}'); } catch(e){}
+        try { after =JSON.parse(log.afterJson||'{}'); } catch(e){}
+        var SKIP=['updatedAt','createdAt','load','completedAt'];
+        var rows=[];
+        var keys=Object.keys(after).concat(Object.keys(before));
+        var seen={};
+        keys.forEach(function(k){
+            if (seen[k]||SKIP.indexOf(k)>=0) return;
+            seen[k]=1;
+            var bv=before[k], av=after[k];
+            if (JSON.stringify(bv)===JSON.stringify(av)) return;
+            var bStr=bv===undefined?'—':String(bv===''?'(empty)':bv);
+            var aStr=av===undefined?'—':String(av===''?'(empty)':av);
+            rows.push('<span class="sc-diff-field">'+_e(k)+'</span>: '+
+                '<span class="sc-diff-before">'+_e(bStr.length>30?bStr.substring(0,30)+'\u2026':bStr)+'</span>'+
+                ' \u2192 <span class="sc-diff-after">'+_e(aStr.length>30?aStr.substring(0,30)+'\u2026':aStr)+'</span>');
+        });
+        return rows.slice(0,4).join('<br>');
     }
     function _revertAudit(logId) {
-        if (!confirm('Revert this change? The record will be restored to its previous state.')) return;
+        if (!confirm('Revert this change? The record will be restored to its previous state.\nA new audit entry will be created for the revert.')) return;
         _api('POST','/api/ivan/schedule/audit/'+logId+'/revert')
-            .then(function(){ _reload(); })
+            .then(function(){ _reload(); _loadAudit(); })
             .catch(function(err){ alert('Revert failed: '+err.message); });
     }
 

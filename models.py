@@ -366,6 +366,9 @@ class IvanLoad(db.Model):
     drop_count   = db.Column(db.Integer,     default=1)
     load_type    = db.Column(db.String(50),  default='')   # E2OPEN | BCAT BROKER | IVAN BROKER | IVAN CUSTOMER
     carrier_name = db.Column(db.String(200), default='')
+    # Round 10 additions
+    shipment_ref   = db.Column(db.String(20),  default='')   # Short human ref e.g. S-A1B2C
+    shipment_color = db.Column(db.String(10),  default='')   # Hex color override for non-done cards
     created_at   = db.Column(db.DateTime,    default=datetime.utcnow)
     updated_at   = db.Column(db.DateTime,    default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -385,10 +388,12 @@ class IvanLoad(db.Model):
             'puAppt':      self.pu_appt      or '',
             'deAppt':      self.de_appt      or '',
             'notes':       self.notes        or '',
-            'pickCount':   self.pick_count   if self.pick_count   is not None else 1,
-            'dropCount':   self.drop_count   if self.drop_count   is not None else 1,
-            'loadType':    self.load_type    or '',
-            'carrierName': self.carrier_name or '',
+            'pickCount':     self.pick_count     if self.pick_count   is not None else 1,
+            'dropCount':     self.drop_count     if self.drop_count   is not None else 1,
+            'loadType':      self.load_type      or '',
+            'carrierName':   self.carrier_name   or '',
+            'shipmentRef':   self.shipment_ref   or '',
+            'shipmentColor': self.shipment_color or '',
             'createdAt':   self.created_at.isoformat() if self.created_at else '',
             'updatedAt':   self.updated_at.isoformat() if self.updated_at else '',
         }

@@ -167,10 +167,12 @@ if config.DATABASE_URL:
                     lcols = {c['name'] for c in insp.get_columns('ivan_loads')}
                     with db.engine.begin() as conn:
                         _ladd = [
-                            ('pick_count',   'INTEGER DEFAULT 1'),
-                            ('drop_count',   'INTEGER DEFAULT 1'),
-                            ('load_type',    "VARCHAR(50)  DEFAULT ''"),
-                            ('carrier_name', "VARCHAR(200) DEFAULT ''"),
+                            ('pick_count',    'INTEGER DEFAULT 1'),
+                            ('drop_count',    'INTEGER DEFAULT 1'),
+                            ('load_type',     "VARCHAR(50)  DEFAULT ''"),
+                            ('carrier_name',  "VARCHAR(200) DEFAULT ''"),
+                            ('shipment_ref',  "VARCHAR(20)  DEFAULT ''"),
+                            ('shipment_color',"VARCHAR(10)  DEFAULT ''"),
                         ]
                         for col, defn in _ladd:
                             if col not in lcols:
@@ -1324,22 +1326,28 @@ def ivan_load_create():
     from models import IvanLoad
     from extensions import db as _db
     d = request.get_json() or {}
+    raw_id = d.get('id') or ('load-' + _uuid.uuid4().hex[:8])
+    # Auto-generate a short human-readable shipment ref if not provided
+    short = raw_id[-5:].upper()
+    auto_ref = 'S-' + short
     load = IvanLoad(
-        id           = d.get('id') or ('load-' + _uuid.uuid4().hex[:8]),
-        alexei_id    = d.get('alexeiId', ''),
-        tms_id       = d.get('tmsId', ''),
-        pu_number    = d.get('puNumber', ''),
-        pu_city      = d.get('puCity', ''),
-        pu_state     = (d.get('puState') or '').upper(),
-        de_city      = d.get('deCity', ''),
-        de_state     = (d.get('deState') or '').upper(),
-        pu_appt      = d.get('puAppt', ''),
-        de_appt      = d.get('deAppt', ''),
-        notes        = d.get('notes', ''),
-        pick_count   = int(d.get('pickCount', 1) or 1),
-        drop_count   = int(d.get('dropCount', 1) or 1),
-        load_type    = d.get('loadType', ''),
-        carrier_name = d.get('carrierName', ''),
+        id             = raw_id,
+        alexei_id      = d.get('alexeiId', ''),
+        tms_id         = d.get('tmsId', ''),
+        pu_number      = d.get('puNumber', ''),
+        pu_city        = d.get('puCity', ''),
+        pu_state       = (d.get('puState') or '').upper(),
+        de_city        = d.get('deCity', ''),
+        de_state       = (d.get('deState') or '').upper(),
+        pu_appt        = d.get('puAppt', ''),
+        de_appt        = d.get('deAppt', ''),
+        notes          = d.get('notes', ''),
+        pick_count     = int(d.get('pickCount', 1) or 1),
+        drop_count     = int(d.get('dropCount', 1) or 1),
+        load_type      = d.get('loadType', ''),
+        carrier_name   = d.get('carrierName', ''),
+        shipment_ref   = d.get('shipmentRef', '') or auto_ref,
+        shipment_color = d.get('shipmentColor', '') or '',
     )
     _db.session.add(load)
     _db.session.commit()
@@ -1363,10 +1371,12 @@ def ivan_load_update(lid):
     if 'puAppt'      in d: load.pu_appt      = d['puAppt']
     if 'deAppt'      in d: load.de_appt      = d['deAppt']
     if 'notes'       in d: load.notes        = d['notes']
-    if 'pickCount'   in d: load.pick_count   = int(d['pickCount']   or 1)
-    if 'dropCount'   in d: load.drop_count   = int(d['dropCount']   or 1)
-    if 'loadType'    in d: load.load_type    = d['loadType']    or ''
-    if 'carrierName' in d: load.carrier_name = d['carrierName'] or ''
+    if 'pickCount'     in d: load.pick_count     = int(d['pickCount']   or 1)
+    if 'dropCount'     in d: load.drop_count     = int(d['dropCount']   or 1)
+    if 'loadType'      in d: load.load_type      = d['loadType']      or ''
+    if 'carrierName'   in d: load.carrier_name   = d['carrierName']   or ''
+    if 'shipmentRef'   in d: load.shipment_ref   = d['shipmentRef']   or ''
+    if 'shipmentColor' in d: load.shipment_color = d['shipmentColor'] or ''
     _db.session.commit()
     return jsonify(load.to_dict())
 
@@ -1585,6 +1595,67 @@ def ivan_schedule_audit_revert(log_id):
                  before=after, after=before,
                  summary='Reverted: ' + (record.summary or record.entity_id))
     return jsonify({'ok': True})
+
+
+@app.route('/api/ivan/schedule/driver-day', methods=['GET'])
+@login_required
+def ivan_schedule_driver_day():
+    """Return all assignments for a specific driver on a specific date.
+    Query params: driver=Name&date=YYYY-MM-DD
+    """
+    from models import IvanScheduleAssignment
+    driver = request.args.get('driver', '').strip()
+    date   = request.args.get('date', '').strip()
+    if not driver or not date:
+        return jsonify([])
+    assignments = (IvanScheduleAssignment.query
+                   .filter_by(date=date, driver_name=driver)
+                   .order_by(IvanScheduleAssignment.sequence_number)
+                   .all())
+    return jsonify([a.to_dict() for a in assignments])
+
+
+@app.route('/api/ivan/schedule/shipments/<lid>/move', methods=['POST'])
+@login_required
+def ivan_shipment_move(lid):
+    """Move all assignment legs for a load by offsetDays days.
+    Body: { offsetDays: <int> }
+    Preserves relative gaps between legs.
+    """
+    from models import IvanLoad, IvanScheduleAssignment
+    from extensions import db as _db
+    from datetime import date as _date, timedelta as _td
+    import json
+
+    load = IvanLoad.query.get_or_404(lid)
+    d = request.get_json() or {}
+    offset = int(d.get('offsetDays', 0))
+    if offset == 0:
+        return jsonify({'ok': True, 'moved': 0})
+
+    assignments = IvanScheduleAssignment.query.filter_by(load_id=lid).all()
+    moved = 0
+    for a in assignments:
+        try:
+            old_dt = _date.fromisoformat(a.date)
+            new_dt = old_dt + _td(days=offset)
+            new_date = new_dt.isoformat()
+            # Recalculate weekStart (Monday of new date)
+            wd = new_dt.weekday()  # Mon=0
+            mon = new_dt - _td(days=wd)
+            new_week = mon.isoformat()
+            before = a.to_dict()
+            a.date = new_date
+            a.week_start = new_week
+            _db.session.commit()
+            after = a.to_dict()
+            _write_audit('assignment', a.id, 'update', before=before, after=after,
+                         summary=f'Moved (shipment {load.shipment_ref or lid}) {before["date"]} → {new_date}')
+            moved += 1
+        except Exception as _me:
+            _log.warning('Move leg error: %s', _me)
+
+    return jsonify({'ok': True, 'moved': moved})
 
 
 @app.route('/api/amazon/status')

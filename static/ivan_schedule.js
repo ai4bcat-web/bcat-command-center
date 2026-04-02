@@ -144,10 +144,7 @@ var IvanScheduleApp = (function () {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-    function _done(a) {
-        return !!(a.dispatched && a.pickedUp && a.delivered &&
-                  a.paperworkReceived && a.paperworkReviewed && a.invoicingReady);
-    }
+    function _done(a) { return !!a.isComplete; }
     function _e(s) {
         return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
@@ -284,7 +281,7 @@ var IvanScheduleApp = (function () {
         // Appts
         var pts=[]; if(a.puAppt) pts.push('PU '+a.puAppt); if(a.deAppt) pts.push('DE '+a.deAppt);
         if(pts.length) h+='<div class="sc-appts">'+_e(pts.join(' \u00b7 '))+'</div>';
-        // Checkboxes
+        // Workflow checkboxes
         var CHKS=[
             ['dispatched','D','Dispatched'],
             ['pickedUp','P','Picked Up'],
@@ -300,7 +297,12 @@ var IvanScheduleApp = (function () {
                ' data-action="toggle-chk" data-id="'+a.id+'" data-field="'+c[0]+'">'+
                '<span>'+c[1]+'</span></label>';
         });
-        if(isDone) h+='<span class="sc-done-mark" title="Fully complete">\u2713</span>';
+        // Manual completion toggle — separated from workflow checkboxes
+        h+='<span class="sc-chks-sep"></span>';
+        h+='<label class="sc-chk-lbl sc-done-lbl" title="Mark this assignment complete">';
+        h+='<input type="checkbox" class="sc-chk sc-done-chk"'+(isDone?' checked':'')+
+           ' data-action="toggle-chk" data-id="'+a.id+'" data-field="isComplete">';
+        h+='<span>'+(isDone?'\u2713 DONE':'DONE')+'</span></label>';
         h+='</div>';
         // Notes
         if(a.notes) {
@@ -532,11 +534,11 @@ var IvanScheduleApp = (function () {
         var card=document.querySelector('.sc-card[data-id="'+id+'"]');
         if(card) {
             card.classList.toggle('sc-card-done',isDone);
-            var dm=card.querySelector('.sc-done-mark');
-            if(isDone&&!dm) {
-                var chkRow=card.querySelector('.sc-chks');
-                if(chkRow){ var sp=document.createElement('span'); sp.className='sc-done-mark'; sp.title='Fully complete'; sp.textContent='\u2713'; chkRow.appendChild(sp); }
-            } else if(!isDone&&dm) { dm.remove(); }
+            // Update the DONE label text to reflect state
+            if(field==='isComplete') {
+                var doneSpan=card.querySelector('.sc-done-lbl span');
+                if(doneSpan) doneSpan.textContent=checked?'\u2713 DONE':'DONE';
+            }
         }
         var patch={}; patch[field]=checked;
         _api('PUT','/api/ivan/schedule/assignments/'+id,patch).catch(function(err){

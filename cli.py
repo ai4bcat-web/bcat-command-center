@@ -207,6 +207,16 @@ def seed_schedule():
 
     db.create_all()
 
+    # Add is_complete column if missing (idempotent on PostgreSQL and SQLite)
+    from sqlalchemy import inspect as _inspect, text as _text
+    _cols = [c['name'] for c in _inspect(db.engine).get_columns('ivan_schedule_assignments')]
+    if 'is_complete' not in _cols:
+        db.session.execute(_text(
+            'ALTER TABLE ivan_schedule_assignments ADD COLUMN is_complete BOOLEAN DEFAULT FALSE'
+        ))
+        db.session.commit()
+        click.echo('  ↳ Added is_complete column to ivan_schedule_assignments.')
+
     today  = date.today()
     monday = today - timedelta(days=today.weekday())
     week   = monday.isoformat()
@@ -229,7 +239,8 @@ def seed_schedule():
     def asgn(aid, ld, date_str, driver, seq, action,
              orig_city, orig_st, dest_city, dest_st,
              pu_appt='', de_appt='', notes='',
-             disp=False, pu=False, de=False, pw_r=False, pw_w=False, inv=False):
+             disp=False, pu=False, de=False, pw_r=False, pw_w=False, inv=False,
+             complete=False):
         return IvanScheduleAssignment(
             id=aid, load_id=ld.id, week_start=week, date=date_str,
             driver_name=driver, sequence_number=seq, action_type=action,
@@ -237,7 +248,8 @@ def seed_schedule():
             dest_city=dest_city,  dest_state=dest_st,
             pu_appt=pu_appt, de_appt=de_appt, notes=notes,
             dispatched=disp, picked_up=pu, delivered=de,
-            paperwork_received=pw_r, paperwork_reviewed=pw_w, invoicing_ready=inv)
+            paperwork_received=pw_r, paperwork_reviewed=pw_w, invoicing_ready=inv,
+            is_complete=complete)
 
     # ── Loads ──────────────────────────────────────────────────────────────────
     # L1: Chicago → Milwaukee  (Alexei, Mon, P&D — FULLY COMPLETE)
@@ -265,10 +277,10 @@ def seed_schedule():
     # ── Assignments ────────────────────────────────────────────────────────────
     assignments = [
         # MONDAY
-        # Alexei seq 1 — PICKUP_AND_DELIVER L1 (FULLY COMPLETE → green row)
+        # Alexei seq 1 — PICKUP_AND_DELIVER L1 (manually marked complete → green card)
         asgn('asgn-seed-001', L1, day(0), 'Alexei', 1, 'PICKUP_AND_DELIVER',
              'Chicago','IL','Milwaukee','WI','07:00','11:30','Reefer 34°F',
-             disp=True, pu=True, de=True, pw_r=True, pw_w=True, inv=True),
+             disp=True, pu=True, de=True, pw_r=True, pw_w=True, inv=True, complete=True),
         # Alexei seq 2 — PICKUP L2, staged at yard overnight
         asgn('asgn-seed-002', L2, day(0), 'Alexei', 2, 'PICKUP',
              'Kenosha','WI','Pleasant Prairie','WI','13:00','',

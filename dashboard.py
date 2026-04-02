@@ -1331,6 +1331,7 @@ def ivan_assignment_update(aid):
     if 'paperworkReceived'  in d: a.paperwork_received = bool(d['paperworkReceived'])
     if 'paperworkReviewed'  in d: a.paperwork_reviewed = bool(d['paperworkReviewed'])
     if 'invoicingReady'     in d: a.invoicing_ready    = bool(d['invoicingReady'])
+    if 'isComplete'         in d: a.is_complete        = bool(d['isComplete'])
     _db.session.commit()
     return jsonify(a.to_dict())
 

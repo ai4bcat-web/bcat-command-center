@@ -833,13 +833,10 @@ var IvanOpsApp = (function () {
                 }
             }
 
-            var hasOO = _drivers.some(function(d){ return d.assignedTruckId === e.id && d.driverType === 'owner_operator'; });
             var bobtailCell = '';
             if (isTruckOnly || _es.filter === 'all') {
                 if (e.type === 'truck') {
-                    bobtailCell = hasOO
-                        ? '<td>' + _expiryBadge(e.bobtailInsuranceDate) + '</td>'
-                        : '<td style="color:' + C.muted + '">—</td>';
+                    bobtailCell = '<td>' + (e.bobtailInsuranceDate ? _expiryBadge(e.bobtailInsuranceDate) : '<span style="color:' + C.muted + '">—</span>') + '</td>';
                 } else if (_es.filter === 'all') {
                     bobtailCell = '<td style="color:' + C.muted + '">—</td>';
                 }
@@ -856,6 +853,7 @@ var IvanOpsApp = (function () {
                 + '<td>' + _esc(e.plate || '—') + '</td>'
                 + '<td>' + _dotInspBadge(e.dotInspectionDate) + '</td>'
                 + (isTruckOnly || _es.filter === 'all' ? iftaCell + irpCell + driverCell + bobtailCell : '')
+                + '<td>' + _insuranceExpiryBadge(e.insuranceExpirationDate) + '</td>'
                 + '<td>' + _fmBadge(e.fleetManagerAssignee) + '</td>'
                 + '<td>' + _tollwayBadge(e.onTollwayAccount) + '</td>'
                 + '<td>' + taskCell + '</td>'
@@ -869,7 +867,7 @@ var IvanOpsApp = (function () {
                 + '</tr>';
         }).join('');
 
-        var colCount = 8 + (isTruckOnly || _es.filter === 'all' ? 4 : 0) + 1;
+        var colCount = 9 + (isTruckOnly || _es.filter === 'all' ? 4 : 0) + 1;
 
         var eStart = total === 0 ? 0 : page * EQUIP_PAGE_SIZE + 1;
         var eEnd   = Math.min(page * EQUIP_PAGE_SIZE + EQUIP_PAGE_SIZE, total);
@@ -916,6 +914,7 @@ var IvanOpsApp = (function () {
                   + '<th>Driver</th>'
                   + '<th>Bobtail Ins.</th>'
                 : '')
+            + '<th>Insurance</th>'
             + '<th>Fleet Mgr</th>'
             + '<th>Tollway</th>'
             + _sortTh('Open Tasks',         'openTasks')

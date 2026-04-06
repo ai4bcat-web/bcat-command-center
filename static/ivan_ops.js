@@ -49,7 +49,10 @@ var IvanOpsApp = (function () {
         histSortCol: 'invoiceDate',   // sort column for maintenance history
         histSortDir: 'desc',          // 'asc' | 'desc'
         histFilterEquip:    '',       // equipment id filter ('' = all)
-        histFilterPaid:     ''        // '' | 'paid' | 'unpaid'
+        histFilterPaid:     '',       // '' | 'paid' | 'unpaid'
+        maintSortCol: 'dueDate',      // sort column for maintenance & compliance section
+        maintSortDir: 'asc',          // 'asc' | 'desc'
+        maintFilterEquip: ''          // equipment id filter for maintenance section
     };
     var _ds = {                       // drivers tab state
         search: ''
@@ -331,6 +334,14 @@ var IvanOpsApp = (function () {
         return '<th data-histsort="' + col + '" style="' + style + '">' + label
             + '<span style="font-size:10px;opacity:' + (active ? '1' : '0.4') + '">' + arrow + '</span></th>';
     }
+    function _maintSortTh(label, col) {
+        var active = _es.maintSortCol === col;
+        var arrow  = active ? (_es.maintSortDir === 'asc' ? ' ▲' : ' ▼') : ' ⇅';
+        var style  = 'cursor:pointer;user-select:none;white-space:nowrap'
+                   + (active ? ';color:#f3f4f6' : '');
+        return '<th data-maintsort="' + col + '" style="' + style + '">' + label
+            + '<span style="font-size:10px;opacity:' + (active ? '1' : '0.4') + '">' + arrow + '</span></th>';
+    }
 
     // ── _syncDotInspectionTasks — API-backed ──────────────────────────────
     function _syncDotInspectionTasks(cb) {
@@ -538,21 +549,50 @@ var IvanOpsApp = (function () {
             + '</div>';
     }
 
-    // ── Upcoming maintenance section ──────────────────────────────────────
+    // ── Maintenance & Compliance Tasks section ────────────────────────────
     function _htmlUpcomingMaintenance(tasks) {
         var MAINT_PAGE_SIZE = 10;
         var today = _today();
+
         var filterBtns = ['all', 'upcoming', 'overdue', 'high'].map(function (f) {
             var label = f === 'high' ? 'High Priority' : f.charAt(0).toUpperCase() + f.slice(1);
             return '<button class="ivan-fbtn' + (_es.mFilter === f ? ' active' : '') + '" data-mfilter="' + f + '">' + label + '</button>';
         }).join('');
 
+        var equipOpts = '<option value="">All Equipment</option>'
+            + _equipment.filter(function(e){ return e.active; }).map(function(e){
+                return '<option value="' + e.id + '"' + (_es.maintFilterEquip === e.id ? ' selected' : '') + '>'
+                    + _esc(e.unitNumber) + (e.nickname ? ' · ' + _esc(e.nickname) : '') + '</option>';
+            }).join('');
+
+        var filterBar = '<div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.75rem">'
+            + '<select id="maint-filter-equip" class="ivan-search" style="width:auto">' + equipOpts + '</select>'
+            + '</div>';
+
+        var PRIO_ORDER   = { high: 0, medium: 1, low: 2 };
+        var STATUS_ORDER = { overdue: 0, in_progress: 1, upcoming: 2, completed: 3 };
+
         var visible = tasks.filter(function (m) {
             var f = _es.mFilter;
-            if (f === 'upcoming') return m.status !== 'overdue' && m.dueDate >= today;
-            if (f === 'overdue')  return m.dueDate < today;
-            if (f === 'high')     return m.priority === 'high';
+            if (f === 'upcoming') { if (!(m.status !== 'overdue' && m.dueDate >= today)) return false; }
+            else if (f === 'overdue') { if (!(m.dueDate < today)) return false; }
+            else if (f === 'high')    { if (m.priority !== 'high') return false; }
+            if (_es.maintFilterEquip && m.equipmentId !== _es.maintFilterEquip) return false;
             return true;
+        });
+
+        visible.sort(function(a, b) {
+            var col = _es.maintSortCol, dir = _es.maintSortDir === 'asc' ? 1 : -1;
+            if (col === 'equip') {
+                var ae = _findEquip(a.equipmentId), be = _findEquip(b.equipmentId);
+                return dir * ((ae ? ae.unitNumber : '').localeCompare(be ? be.unitNumber : ''));
+            }
+            if (col === 'title')    return dir * (a.title||'').localeCompare(b.title||'');
+            if (col === 'priority') return dir * ((PRIO_ORDER[a.priority]||1) - (PRIO_ORDER[b.priority]||1));
+            if (col === 'status')   return dir * ((STATUS_ORDER[a.status]||2) - (STATUS_ORDER[b.status]||2));
+            if (col === 'dueDate')  return dir * (a.dueDate||'').localeCompare(b.dueDate||'');
+            if (col === 'assignee') return dir * (a.assignee||'').localeCompare(b.assignee||'');
+            return 0;
         });
 
         var total      = visible.length;
@@ -574,6 +614,7 @@ var IvanOpsApp = (function () {
                 + '<td><span class="' + dCls + '">' + dLabel + '</span><br><small style="color:' + C.muted + '">' + _fmtDate(m.dueDate) + '</small></td>'
                 + '<td>' + (m.assignee ? _esc(m.assignee) : '<span style="color:' + C.muted + '">—</span>') + '</td>'
                 + '<td style="white-space:nowrap">'
+                + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="open-edit-maint" data-mtid="' + m.maintenanceTaskId + '" title="Edit task">Edit</button>&nbsp;'
                 + '<button class="ivan-btn ivan-btn-sm" data-action="mark-complete" data-mtid="' + m.maintenanceTaskId + '" title="Mark complete">✓ Done</button>&nbsp;'
                 + '<button class="ivan-btn ivan-btn-sm ivan-btn-danger" data-action="delete-maint" data-mtid="' + m.maintenanceTaskId + '" title="Delete task">Delete</button>'
                 + '</td>'
@@ -595,16 +636,23 @@ var IvanOpsApp = (function () {
 
         return '<div class="chart-card" style="margin-bottom:1.5rem">'
             + '<div class="ivan-section-hdr">'
-            + '<div class="section-title" style="margin:0">Upcoming &amp; Overdue Maintenance</div>'
+            + '<div class="section-title" style="margin:0">Maintenance &amp; Compliance Tasks</div>'
             + '<div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">'
             + '<div class="ivan-fgroup">' + filterBtns + '</div>'
-            + '<button class="ivan-btn" data-action="open-add-maint">+ Add Maintenance</button>'
+            + '<button class="ivan-btn" data-action="open-add-maint">+ Add Task</button>'
             + '</div>'
             + '</div>'
+            + filterBar
             + '<div class="table-wrap"><table class="ivan-table"><thead><tr>'
-            + '<th>Equipment</th><th>Task</th><th>Priority</th><th>Status</th><th>Due</th><th>Assignee</th><th></th>'
+            + _maintSortTh('Equipment', 'equip')
+            + _maintSortTh('Task', 'title')
+            + _maintSortTh('Priority', 'priority')
+            + _maintSortTh('Status', 'status')
+            + _maintSortTh('Due', 'dueDate')
+            + _maintSortTh('Assignee', 'assignee')
+            + '<th></th>'
             + '</tr></thead><tbody>'
-            + (rows || '<tr><td colspan="7" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No open tasks match the current filter.</td></tr>')
+            + (rows || '<tr><td colspan="7" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No tasks match the current filter.</td></tr>')
             + '</tbody></table></div>'
             + pagination
             + '</div>';
@@ -1310,26 +1358,70 @@ var IvanOpsApp = (function () {
                 return;
             }
             if (a === 'close-maint-modal') { _closeModal('ivan-maint-modal'); return; }
+            if (a === 'open-edit-maint') {
+                var task = _maintenance.find(function(m){ return m.maintenanceTaskId === btn.dataset.mtid; });
+                if (!task) return;
+                _clearModal('ivan-maint-modal');
+                document.getElementById('ivan-maint-modal-title').textContent = 'Edit Maintenance Task';
+                var sel = document.getElementById('ivan-maint-equip-sel');
+                if (sel) sel.value = task.equipmentId;
+                var formPrio = task.priority === 'med' ? 'medium' : (task.priority || 'medium');
+                var prioSel = document.querySelector('#ivan-maint-modal [name="priority"]');
+                if (prioSel) prioSel.value = formPrio;
+                var titleEl = document.querySelector('#ivan-maint-modal [name="title"]');
+                if (titleEl) titleEl.value = task.title || '';
+                var descEl = document.querySelector('#ivan-maint-modal [name="description"]');
+                if (descEl) descEl.value = task.description || '';
+                var ddEl = document.querySelector('#ivan-maint-modal [name="dueDate"]');
+                if (ddEl) ddEl.value = task.dueDate || '';
+                var stEl = document.querySelector('#ivan-maint-modal [name="status"]');
+                if (stEl) stEl.value = (task.status === 'completed' ? 'upcoming' : (task.status || 'upcoming'));
+                var vendEl = document.querySelector('#ivan-maint-modal [name="vendor"]');
+                if (vendEl) vendEl.value = task.vendor || '';
+                var assignEl = document.querySelector('#ivan-maint-modal [name="assignee"]');
+                if (assignEl) assignEl.value = task.assignee || '';
+                var saveBtn = document.getElementById('ivan-maint-save-btn');
+                if (saveBtn) { saveBtn.dataset.editid = task.maintenanceTaskId; saveBtn.textContent = 'Save Changes'; }
+                _openModal('ivan-maint-modal');
+                return;
+            }
             if (a === 'save-maint') {
                 var data = _readForm('ivan-maint-modal');
                 if (!data.equipmentId || !data.title || !data.dueDate) { alert('Equipment, Title, and Due Date are required.'); return; }
-                // Map form priority 'medium' → API 'med'
                 var apiPriority = data.priority === 'medium' ? 'med' : (data.priority || 'med');
-                var taskPayload = {
-                    id:       'mt-' + _genId(),
-                    equipId:  data.equipmentId,
-                    title:    data.title,
-                    dueDate:  data.dueDate,
-                    priority: apiPriority,
-                    status:   data.status || 'upcoming',
-                    notes:    data.description || '',
-                    autoDot:  false,
-                    assignee: data.assignee || ''
-                };
-                _api('POST', '/api/ivan/tasks', taskPayload).then(function() {
-                    _closeModal('ivan-maint-modal');
-                    _loadAll(function() { _renderEquipmentTab(); });
-                });
+                var saveBtn = document.getElementById('ivan-maint-save-btn');
+                var editId = saveBtn && saveBtn.dataset.editid;
+                if (editId) {
+                    // Edit existing task
+                    var putPayload = {
+                        title:    data.title,
+                        dueDate:  data.dueDate,
+                        priority: apiPriority,
+                        status:   data.status || 'upcoming',
+                        notes:    data.description || '',
+                        assignee: data.assignee || ''
+                    };
+                    _api('PUT', '/api/ivan/tasks/' + editId, putPayload).then(function() {
+                        _closeModal('ivan-maint-modal');
+                        _loadAll(function() { _renderEquipmentTab(); });
+                    });
+                } else {
+                    var taskPayload = {
+                        id:       'mt-' + _genId(),
+                        equipId:  data.equipmentId,
+                        title:    data.title,
+                        dueDate:  data.dueDate,
+                        priority: apiPriority,
+                        status:   data.status || 'upcoming',
+                        notes:    data.description || '',
+                        autoDot:  false,
+                        assignee: data.assignee || ''
+                    };
+                    _api('POST', '/api/ivan/tasks', taskPayload).then(function() {
+                        _closeModal('ivan-maint-modal');
+                        _loadAll(function() { _renderEquipmentTab(); });
+                    });
+                }
                 return;
             }
 
@@ -1543,6 +1635,30 @@ var IvanOpsApp = (function () {
             _es.mFilter = btn.dataset.mfilter;
             _es.maintPage = 0;
             _renderEquipmentTab();
+        });
+
+        // Maintenance & Compliance column sort
+        container.addEventListener('click', function (e) {
+            var th = e.target.closest('[data-maintsort]');
+            if (!th) return;
+            var col = th.dataset.maintsort;
+            if (_es.maintSortCol === col) {
+                _es.maintSortDir = _es.maintSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                _es.maintSortCol = col;
+                _es.maintSortDir = 'asc';
+            }
+            _es.maintPage = 0;
+            _renderEquipmentTab();
+        });
+
+        // Maintenance equipment filter dropdown
+        container.addEventListener('change', function (e) {
+            if (e.target.id === 'maint-filter-equip') {
+                _es.maintFilterEquip = e.target.value;
+                _es.maintPage = 0;
+                _renderEquipmentTab();
+            }
         });
 
         // Search

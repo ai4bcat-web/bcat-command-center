@@ -155,6 +155,7 @@ var IvanOpsApp = (function () {
 
     // ── Load all data from API, then call cb() ────────────────────────────
     function _loadAll(cb) {
+        _drivers = _loadLS(LS_DRIVERS);   // always sync drivers from localStorage
         Promise.all([
             fetch('/api/ivan/equipment').then(function(r){ return r.json(); }),
             fetch('/api/ivan/tasks').then(function(r){ return r.json(); }),

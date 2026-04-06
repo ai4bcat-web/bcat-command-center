@@ -184,6 +184,42 @@ if config.DATABASE_URL:
 
     _auto_migrate_schedule()
 
+    # ── Auto-migrate new equipment / task / invoice columns ───────────────────
+    def _auto_migrate_equipment():
+        try:
+            from sqlalchemy import inspect as _si, text as _st
+            with app.app_context():
+                insp = _si(db.engine)
+                if insp.has_table('ivan_equipment'):
+                    ecols = {c['name'] for c in insp.get_columns('ivan_equipment')}
+                    with db.engine.begin() as conn:
+                        for col, defn in [
+                            ('ifta_expiration_date',      "VARCHAR(20) DEFAULT ''"),
+                            ('irp_expiration_date',       "VARCHAR(20) DEFAULT ''"),
+                            ('assigned_driver_id',        "VARCHAR(50) DEFAULT ''"),
+                            ('insurance_expiration_date', "VARCHAR(20) DEFAULT ''"),
+                            ('fleet_manager_assignee',    "VARCHAR(50) DEFAULT ''"),
+                            ('on_tollway_account',        'BOOLEAN DEFAULT FALSE'),
+                        ]:
+                            if col not in ecols:
+                                conn.execute(_st(
+                                    f'ALTER TABLE ivan_equipment ADD COLUMN {col} {defn}'
+                                ))
+                if insp.has_table('ivan_tasks'):
+                    tcols = {c['name'] for c in insp.get_columns('ivan_tasks')}
+                    if 'assignee' not in tcols:
+                        with db.engine.begin() as conn:
+                            conn.execute(_st("ALTER TABLE ivan_tasks ADD COLUMN assignee VARCHAR(100) DEFAULT ''"))
+                if insp.has_table('ivan_invoices'):
+                    icols = {c['name'] for c in insp.get_columns('ivan_invoices')}
+                    if 'assignee' not in icols:
+                        with db.engine.begin() as conn:
+                            conn.execute(_st("ALTER TABLE ivan_invoices ADD COLUMN assignee VARCHAR(100) DEFAULT ''"))
+        except Exception as _me:
+            _log.warning('Equipment column auto-migrate skipped: %s', _me)
+
+    _auto_migrate_equipment()
+
     # Create audit log table if it doesn't exist (new table — db.create_all handles this)
     def _ensure_audit_table():
         try:
@@ -1118,6 +1154,12 @@ def ivan_equipment_create():
         make=d.get('make',''), model=d.get('model',''), year=d.get('year'),
         mileage=d.get('mileage'), ownership=d.get('ownership','owned'),
         insured=d.get('insured', True), dot_inspection_date=d.get('dotInspectionDate',''),
+        ifta_expiration_date=d.get('iftaExpirationDate',''),
+        irp_expiration_date=d.get('irpExpirationDate',''),
+        assigned_driver_id=d.get('assignedDriverId',''),
+        insurance_expiration_date=d.get('insuranceExpirationDate',''),
+        fleet_manager_assignee=d.get('fleetManagerAssignee',''),
+        on_tollway_account=d.get('onTollwayAccount', False),
         active=d.get('active', True), notes=d.get('notes','')
     )
     _db.session.add(e)
@@ -1138,6 +1180,12 @@ def ivan_equipment_update(eid):
     e.mileage=d.get('mileage', e.mileage); e.ownership=d.get('ownership', e.ownership)
     e.insured=d.get('insured', e.insured)
     e.dot_inspection_date=d.get('dotInspectionDate', e.dot_inspection_date)
+    e.ifta_expiration_date=d.get('iftaExpirationDate', e.ifta_expiration_date)
+    e.irp_expiration_date=d.get('irpExpirationDate', e.irp_expiration_date)
+    e.assigned_driver_id=d.get('assignedDriverId', e.assigned_driver_id)
+    e.insurance_expiration_date=d.get('insuranceExpirationDate', e.insurance_expiration_date)
+    e.fleet_manager_assignee=d.get('fleetManagerAssignee', e.fleet_manager_assignee)
+    e.on_tollway_account=d.get('onTollwayAccount', e.on_tollway_account)
     e.active=d.get('active', e.active); e.notes=d.get('notes', e.notes)
     _db.session.commit()
     return jsonify(e.to_dict())
@@ -1169,7 +1217,7 @@ def ivan_task_create():
         id=d['id'], equip_id=d['equipId'], title=d.get('title',''),
         due_date=d.get('dueDate',''), priority=d.get('priority','med'),
         status=d.get('status','upcoming'), notes=d.get('notes',''),
-        auto_dot=d.get('autoDot', False)
+        auto_dot=d.get('autoDot', False), assignee=d.get('assignee','')
     )
     _db.session.add(t)
     _db.session.commit()
@@ -1185,6 +1233,7 @@ def ivan_task_update(tid):
     t.title=d.get('title', t.title); t.due_date=d.get('dueDate', t.due_date)
     t.priority=d.get('priority', t.priority); t.status=d.get('status', t.status)
     t.notes=d.get('notes', t.notes); t.auto_dot=d.get('autoDot', t.auto_dot)
+    t.assignee=d.get('assignee', t.assignee)
     _db.session.commit()
     return jsonify(t.to_dict())
 
@@ -1215,7 +1264,8 @@ def ivan_invoice_create():
         id=d['id'], equip_id=d['equipId'], date=d.get('date',''),
         vendor=d.get('vendor',''), description=d.get('description',''),
         amount=d.get('amount', 0), invoice_number=d.get('invoiceNumber',''),
-        payment_method=d.get('paymentMethod',''), payment_date=d.get('paymentDate','')
+        payment_method=d.get('paymentMethod',''), payment_date=d.get('paymentDate',''),
+        assignee=d.get('assignee','')
     )
     _db.session.add(inv)
     _db.session.commit()
@@ -1234,6 +1284,7 @@ def ivan_invoice_update(iid):
     inv.invoice_number=d.get('invoiceNumber', inv.invoice_number)
     inv.payment_method=d.get('paymentMethod', inv.payment_method)
     inv.payment_date=d.get('paymentDate', inv.payment_date)
+    inv.assignee=d.get('assignee', inv.assignee)
     _db.session.commit()
     return jsonify(inv.to_dict())
 

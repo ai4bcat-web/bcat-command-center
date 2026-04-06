@@ -161,6 +161,13 @@
 /* Invoice */
 .ivan-badge-invoice { background: #1c2d40; color: #7dd3fc; border: 1px solid #1e40af; }
 
+/* Fleet manager assignee */
+.ivan-badge-fm-jason { background: #1a3a2a; color: #6ee7b7; border: 1px solid #065f46; }
+.ivan-badge-fm-ryne  { background: #1e2d5e; color: #a5b4fc; border: 1px solid #3730a3; }
+
+/* Tollway account */
+.ivan-badge-tollway  { background: #1a2d1a; color: #86efac; border: 1px solid #166534; }
+
 /* ── Value color helpers ─────────────────────────────────────────────── */
 .ivan-val-danger { color: #f87171; font-weight: 700; }
 .ivan-val-warn   { color: #fbbf24; font-weight: 700; }

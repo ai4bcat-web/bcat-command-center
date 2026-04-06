@@ -43,7 +43,12 @@ var IvanOpsApp = (function () {
         sortCol:     'unitNumber',    // active sort column key
         sortDir:     'asc',          // 'asc' | 'desc'
         spendPeriod: 'year',          // 'year' | 'alltime'
-        histPage:   0                 // maintenance history current page (0-indexed)
+        histPage:   0,                // maintenance history current page (0-indexed)
+        histSortCol: 'invoiceDate',   // sort column for maintenance history
+        histSortDir: 'desc',          // 'asc' | 'desc'
+        histFilterEquip:    '',       // equipment id filter ('' = all)
+        histFilterPaid:     '',       // '' | 'paid' | 'unpaid'
+        histFilterAssignee: ''        // assignee filter ('' = all)
     };
     var _ds = {                       // drivers tab state
         search: ''
@@ -117,6 +122,7 @@ var IvanOpsApp = (function () {
             estimatedCost:     null,
             actualCost:        null,
             autoDot:           t.autoDot || false,
+            assignee:          t.assignee || '',
             createdAt:         t.createdAt || '',
             completedAt:       null,
             _apiId:            t.id   // keep API id for PUT/DELETE calls
@@ -135,6 +141,7 @@ var IvanOpsApp = (function () {
             description:   inv.description || '',
             paymentMethod: inv.paymentMethod || null,
             paymentDate:   inv.paymentDate || null,
+            assignee:      inv.assignee || '',
             fileRef:       null,
             _apiId:        inv.id   // keep API id for PUT/DELETE calls
         };
@@ -285,6 +292,35 @@ var IvanOpsApp = (function () {
         return '<span class="ivan-badge ivan-badge-done" title="' + title + '">Due ' + _fmtDate(nextStr) + '</span>';
     }
 
+    // Direct expiry date badge (IFTA, IRP, insurance expiry — not last+1yr like DOT)
+    function _expiryBadge(dateStr) {
+        if (!dateStr) return '<span style="color:' + C.muted + '">—</span>';
+        var days = _daysUntil(dateStr);
+        if (days < 0)
+            return '<span class="ivan-badge ivan-badge-overdue" title="Expired ' + _fmtDate(dateStr) + '">' + Math.abs(days) + 'd expired</span>';
+        if (days <= 60)
+            return '<span class="ivan-badge ivan-badge-warn" title="Expiring soon">' + _fmtDate(dateStr) + '</span>';
+        return '<span class="ivan-badge ivan-badge-done">' + _fmtDate(dateStr) + '</span>';
+    }
+    function _fmBadge(fm) {
+        if (!fm) return '<span style="color:' + C.muted + '">—</span>';
+        var cls = fm === 'jason' ? 'ivan-badge-fm-jason' : 'ivan-badge-fm-ryne';
+        return '<span class="ivan-badge ' + cls + '">' + (fm.charAt(0).toUpperCase() + fm.slice(1)) + '</span>';
+    }
+    function _tollwayBadge(on) {
+        return on
+            ? '<span class="ivan-badge ivan-badge-tollway">✓ Tollway</span>'
+            : '<span style="color:' + C.muted + '">—</span>';
+    }
+    function _histSortTh(label, col) {
+        var active = _es.histSortCol === col;
+        var arrow  = active ? (_es.histSortDir === 'asc' ? ' ▲' : ' ▼') : ' ⇅';
+        var style  = 'cursor:pointer;user-select:none;white-space:nowrap'
+                   + (active ? ';color:#f3f4f6' : '');
+        return '<th data-histsort="' + col + '" style="' + style + '">' + label
+            + '<span style="font-size:10px;opacity:' + (active ? '1' : '0.4') + '">' + arrow + '</span></th>';
+    }
+
     // ── _syncDotInspectionTasks — API-backed ──────────────────────────────
     function _syncDotInspectionTasks(cb) {
         var today = _today();
@@ -402,6 +438,9 @@ var IvanOpsApp = (function () {
                 // sort by next due date
                 av = a.dotInspectionDate ? (function(d){ var x=new Date(d); x.setFullYear(x.getFullYear()+1); return x.toISOString().slice(0,10); })(a.dotInspectionDate) : '';
                 bv = b.dotInspectionDate ? (function(d){ var x=new Date(d); x.setFullYear(x.getFullYear()+1); return x.toISOString().slice(0,10); })(b.dotInspectionDate) : '';
+            } else if (col === 'iftaExpirationDate' || col === 'irpExpirationDate' || col === 'insuranceExpirationDate') {
+                av = a[col] || '';
+                bv = b[col] || '';
             } else {
                 av = (a[col] != null ? a[col] : '').toString().toLowerCase();
                 bv = (b[col] != null ? b[col] : '').toString().toLowerCase();
@@ -543,9 +582,55 @@ var IvanOpsApp = (function () {
     // ── Maintenance history section (invoices only) ───────────────────────
     function _htmlMaintenanceHistory() {
         var PAGE_SIZE = 10;
-        var sorted = _invoices.slice().sort(function (a, b) {
-            var da = a.invoiceDate || '', db = b.invoiceDate || '';
-            return da < db ? 1 : da > db ? -1 : 0;
+
+        // Build filter options
+        var equipOpts = '<option value="">All Equipment</option>'
+            + _equipment.filter(function(e){ return e.active; }).map(function(e){
+                return '<option value="' + e.id + '"' + (_es.histFilterEquip === e.id ? ' selected' : '') + '>'
+                    + _esc(e.unitNumber) + (e.nickname ? ' · ' + _esc(e.nickname) : '') + '</option>';
+            }).join('');
+
+        var allAssignees = [];
+        _invoices.forEach(function(inv){ if (inv.assignee && allAssignees.indexOf(inv.assignee) < 0) allAssignees.push(inv.assignee); });
+        var assigneeOpts = '<option value="">All Assignees</option>'
+            + allAssignees.sort().map(function(a){
+                return '<option value="' + _esc(a) + '"' + (_es.histFilterAssignee === a ? ' selected' : '') + '>' + _esc(a) + '</option>';
+            }).join('');
+
+        var filterBar = '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.75rem">'
+            + '<select class="ivan-input" style="width:auto;min-width:160px;padding:5px 8px;font-size:12px" data-action="hist-filter-equip">' + equipOpts + '</select>'
+            + '<select class="ivan-input" style="width:auto;min-width:130px;padding:5px 8px;font-size:12px" data-action="hist-filter-paid">'
+            + '<option value="">All Payments</option>'
+            + '<option value="paid"' + (_es.histFilterPaid === 'paid' ? ' selected' : '') + '>Paid</option>'
+            + '<option value="unpaid"' + (_es.histFilterPaid === 'unpaid' ? ' selected' : '') + '>Unpaid</option>'
+            + '</select>'
+            + '<select class="ivan-input" style="width:auto;min-width:150px;padding:5px 8px;font-size:12px" data-action="hist-filter-assignee">' + assigneeOpts + '</select>'
+            + '</div>';
+
+        // Filter
+        var filtered = _invoices.filter(function(inv){
+            if (_es.histFilterEquip && inv.equipmentId !== _es.histFilterEquip) return false;
+            if (_es.histFilterPaid === 'paid'   && !inv.paymentMethod) return false;
+            if (_es.histFilterPaid === 'unpaid' &&  inv.paymentMethod) return false;
+            if (_es.histFilterAssignee && inv.assignee !== _es.histFilterAssignee) return false;
+            return true;
+        });
+
+        // Sort
+        var col = _es.histSortCol, dir = _es.histSortDir === 'asc' ? 1 : -1;
+        var sorted = filtered.slice().sort(function(a, b){
+            var av, bv;
+            if (col === 'invoiceDate')  { av = a.invoiceDate  || ''; bv = b.invoiceDate  || ''; }
+            else if (col === 'vendor')  { av = (a.vendor      || '').toLowerCase(); bv = (b.vendor || '').toLowerCase(); }
+            else if (col === 'amount')  { av = a.totalAmount  || 0;  bv = b.totalAmount  || 0; }
+            else if (col === 'equip')   { var ea = _findEquip(a.equipmentId), eb = _findEquip(b.equipmentId);
+                                          av = ea ? ea.unitNumber : ''; bv = eb ? eb.unitNumber : ''; }
+            else if (col === 'paid')    { av = a.paymentMethod ? 1 : 0; bv = b.paymentMethod ? 1 : 0; }
+            else if (col === 'assignee'){ av = (a.assignee || '').toLowerCase(); bv = (b.assignee || '').toLowerCase(); }
+            else                        { av = ''; bv = ''; }
+            if (av < bv) return -1 * dir;
+            if (av > bv) return  1 * dir;
+            return 0;
         });
 
         var total     = sorted.length;
@@ -567,12 +652,13 @@ var IvanOpsApp = (function () {
                   + ' data-paytype="invoice" data-payid="' + inv.invoiceId + '">Record Payment</button>';
             return '<tr>'
                 + '<td>' + (eq ? _typeBadge(eq.type) + '&nbsp;' : '') + _esc(label) + '</td>'
-                + '<td style="max-width:240px;white-space:normal">' + descCell + '</td>'
+                + '<td style="max-width:200px;white-space:normal">' + descCell + '</td>'
                 + '<td>' + (inv.invoiceNumber ? _esc(inv.invoiceNumber) : '<span style="color:' + C.muted + '">—</span>') + '</td>'
                 + '<td><span style="color:#86efac;font-weight:600">' + _fmtDate(inv.invoiceDate) + '</span></td>'
                 + '<td>' + _esc(inv.vendor || '—') + '</td>'
                 + '<td>' + _money(inv.totalAmount) + '</td>'
                 + '<td style="white-space:nowrap">' + payCell + '</td>'
+                + '<td>' + (inv.assignee ? '<span style="color:#f3f4f6">' + _esc(inv.assignee) + '</span>' : '<span style="color:' + C.muted + '">—</span>') + '</td>'
                 + '<td><button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="open-hist-edit"'
                   + ' data-paytype="invoice" data-payid="' + inv.invoiceId + '">Edit</button></td>'
                 + '</tr>';
@@ -582,7 +668,7 @@ var IvanOpsApp = (function () {
         var end   = Math.min(page * PAGE_SIZE + PAGE_SIZE, total);
         var pagination = '<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem 0 0;flex-wrap:wrap;gap:.5rem">'
             + '<span style="font-size:12px;color:' + C.muted + '">'
-            + (total === 0 ? 'No records' : 'Showing ' + start + '–' + end + ' of ' + total) + '</span>'
+            + (total === 0 ? 'No records match filters' : 'Showing ' + start + '–' + end + ' of ' + total) + '</span>'
             + '<div style="display:flex;gap:.4rem;align-items:center">'
             + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="hist-page" data-histpage="' + (page - 1) + '"'
             + (page === 0 ? ' disabled style="opacity:.35;cursor:default"' : '') + '>← Prev</button>'
@@ -596,10 +682,19 @@ var IvanOpsApp = (function () {
             + '<div class="section-title" style="margin:0">Maintenance History</div>'
             + '<button class="ivan-btn" data-action="open-add-inv">+ Add Invoice</button>'
             + '</div>'
+            + filterBar
             + '<div class="table-wrap"><table class="ivan-table"><thead><tr>'
-            + '<th>Equipment</th><th>Description</th><th>Invoice #</th><th>Date</th><th>Vendor</th><th>Amount</th><th>Payment</th><th></th>'
+            + _histSortTh('Equipment',  'equip')
+            + _histSortTh('Description','description')
+            + '<th>Invoice #</th>'
+            + _histSortTh('Date',       'invoiceDate')
+            + _histSortTh('Vendor',     'vendor')
+            + _histSortTh('Amount',     'amount')
+            + _histSortTh('Payment',    'paid')
+            + _histSortTh('Assignee',   'assignee')
+            + '<th></th>'
             + '</tr></thead><tbody>'
-            + (rows || '<tr><td colspan="8" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No invoices yet.</td></tr>')
+            + (rows || '<tr><td colspan="9" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No invoices match the current filters.</td></tr>')
             + '</tbody></table></div>'
             + pagination
             + '</div>';
@@ -612,10 +707,44 @@ var IvanOpsApp = (function () {
             return '<button class="ivan-fbtn' + (_es.filter === f ? ' active' : '') + '" data-efilter="' + f + '">' + label + '</button>';
         }).join('');
 
+        var showTruck   = _es.filter === 'truck'   || _es.filter === 'all';
+        var showTrailer = _es.filter === 'trailer'  || _es.filter === 'all';
+        var isTruckOnly = _es.filter === 'truck';
+
         var rows = equip.map(function (e) {
             var spend   = getRepairSpendByEquipment(e.id);
-            var open    = _maintenance.filter(function (m) { return m.equipmentId === e.id && m.status !== 'completed'; }).length;
+            var openAll = _maintenance.filter(function (m) { return m.equipmentId === e.id && m.status !== 'completed'; });
+            var open    = openAll.length;
+            var highCnt = openAll.filter(function(m){ return m.priority === 'high'; }).length;
             var sel     = _es.selectedId === e.id;
+            var taskCell = open === 0
+                ? '<span class="ivan-badge ivan-badge-done">None</span>'
+                : (highCnt > 0
+                    ? '<span class="ivan-badge ivan-badge-high" title="' + highCnt + ' high-priority">⚠ ' + highCnt + ' high</span>'
+                      + (open > highCnt ? '&nbsp;<span class="ivan-badge ivan-badge-upcoming">' + (open - highCnt) + ' other</span>' : '')
+                    : '<span class="ivan-badge ivan-badge-warn">' + open + ' open</span>');
+
+            var driverCell = '';
+            if (isTruckOnly || _es.filter === 'all') {
+                if (e.type === 'truck') {
+                    var drv = _findDriver(e.assignedDriverId);
+                    driverCell = '<td>' + (drv ? _esc(drv.name) : '<span style="color:' + C.muted + '">Unassigned</span>') + '</td>';
+                } else if (_es.filter === 'all') {
+                    driverCell = '<td style="color:' + C.muted + '">—</td>';
+                }
+            }
+
+            var iftaCell = '', irpCell = '';
+            if (isTruckOnly || _es.filter === 'all') {
+                if (e.type === 'truck') {
+                    iftaCell = '<td>' + _expiryBadge(e.iftaExpirationDate) + '</td>';
+                    irpCell  = '<td>' + _expiryBadge(e.irpExpirationDate)  + '</td>';
+                } else if (_es.filter === 'all') {
+                    iftaCell = '<td style="color:' + C.muted + '">—</td>';
+                    irpCell  = '<td style="color:' + C.muted + '">—</td>';
+                }
+            }
+
             return '<tr class="ivan-erow' + (sel ? ' ivan-erow-sel' : '') + '" data-action="select-equip" data-equipid="' + e.id + '">'
                 + '<td>' + _typeBadge(e.type) + '</td>'
                 + '<td><strong>' + _esc(e.unitNumber) + '</strong>'
@@ -623,20 +752,23 @@ var IvanOpsApp = (function () {
                 + '<td>' + e.year + ' ' + _esc(e.make) + ' ' + _esc(e.model) + '</td>'
                 + '<td>' + _esc(e.plate || '—') + '</td>'
                 + '<td>' + _dotInspBadge(e.dotInspectionDate) + '</td>'
-                + '<td>' + (e.ownership ? e.ownership.charAt(0).toUpperCase() + e.ownership.slice(1) : '—') + '</td>'
+                + (isTruckOnly || _es.filter === 'all' ? iftaCell + irpCell + driverCell : '')
                 + '<td>' + _insuranceBadge(e.insured) + '</td>'
-                + '<td>' + (open > 0
-                    ? '<span class="ivan-badge ivan-badge-warn">' + open + ' open</span>'
-                    : '<span class="ivan-badge ivan-badge-done">None</span>') + '</td>'
+                + '<td>' + _expiryBadge(e.insuranceExpirationDate) + '</td>'
+                + '<td>' + _fmBadge(e.fleetManagerAssignee) + '</td>'
+                + '<td>' + _tollwayBadge(e.onTollwayAccount) + '</td>'
+                + '<td>' + taskCell + '</td>'
                 + '<td>' + _money(spend) + '</td>'
                 + '<td style="white-space:nowrap">'
                 + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="edit-equip" data-equipid="' + e.id + '">Edit</button>&nbsp;'
                 + '<button class="ivan-btn ivan-btn-sm" data-action="open-add-maint" data-equipid="' + e.id + '">+ Task</button>&nbsp;'
-                + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="open-add-inv" data-equipid="' + e.id + '">+ Invoice</button>&nbsp;'
-                + '<button class="ivan-btn ivan-btn-sm ivan-btn-danger" data-action="delete-equip" data-equipid="' + e.id + '" title="Delete equipment">Delete</button>'
+                + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="open-add-inv" data-equipid="' + e.id + '">+ Inv</button>&nbsp;'
+                + '<button class="ivan-btn ivan-btn-sm ivan-btn-danger" data-action="delete-equip" data-equipid="' + e.id + '" title="Delete">✕</button>'
                 + '</td>'
                 + '</tr>';
         }).join('');
+
+        var colCount = 9 + (isTruckOnly || _es.filter === 'all' ? 3 : 0) + 1; // base + truck cols + actions
 
         return '<div class="chart-card" style="margin-bottom:1.5rem">'
             + '<div class="ivan-section-hdr">'
@@ -651,14 +783,21 @@ var IvanOpsApp = (function () {
             + _sortTh('Unit',               'unitNumber')
             + _sortTh('Year / Make / Model','year')
             + _sortTh('Plate',              'plate')
-            + _sortTh('DOT Inspection',     'dotInspectionDate')
-            + _sortTh('Ownership',          'ownership')
+            + _sortTh('DOT Insp.',          'dotInspectionDate')
+            + (isTruckOnly || _es.filter === 'all'
+                ? _sortTh('IFTA Exp.', 'iftaExpirationDate')
+                  + _sortTh('IRP Exp.','irpExpirationDate')
+                  + '<th>Driver</th>'
+                : '')
             + _sortTh('Insurance',          'insured')
+            + '<th>Ins. Expiry</th>'
+            + '<th>Fleet Mgr</th>'
+            + '<th>Tollway</th>'
             + _sortTh('Open Tasks',         'openTasks')
             + _sortTh('Repair Spend',       'repairSpend')
             + '<th></th>'
             + '</tr></thead><tbody>'
-            + (rows || '<tr><td colspan="10" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No equipment found.</td></tr>')
+            + (rows || '<tr><td colspan="' + colCount + '" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No equipment found.</td></tr>')
             + '</tbody></table></div></div>';
     }
 
@@ -805,12 +944,31 @@ var IvanOpsApp = (function () {
             + _fgroup('Mileage', '<input name="mileage" type="number" class="ivan-input" placeholder="Optional">')
             + '</div><div class="ivan-frow">'
             + _fgroup('Last DOT Inspection', '<input name="dotInspectionDate" type="date" class="ivan-input">')
-            + '<div class="ivan-fg"></div>'
+            + _fgroup('Insurance Expiry Date', '<input name="insuranceExpirationDate" type="date" class="ivan-input">')
+            + '</div><div class="ivan-frow">'
+            + _fgroup('IFTA Expiration Date (trucks)', '<input name="iftaExpirationDate" type="date" class="ivan-input">')
+            + _fgroup('IRP Expiration Date (trucks)',  '<input name="irpExpirationDate"  type="date" class="ivan-input">')
+            + '</div><div class="ivan-frow">'
+            + _fgroup('Assigned Driver (trucks)',
+                (function(){
+                    var opts = '<option value="">— Unassigned —</option>'
+                        + _drivers.map(function(d){ return '<option value="' + d.id + '">' + _esc(d.name) + '</option>'; }).join('');
+                    return '<select name="assignedDriverId" class="ivan-input">' + opts + '</select>';
+                })())
+            + _fgroup('Fleet Manager',
+                '<select name="fleetManagerAssignee" class="ivan-input">'
+                + '<option value="">— None —</option>'
+                + '<option value="jason">Jason</option>'
+                + '<option value="ryne">Ryne</option>'
+                + '</select>')
             + '</div>'
             + '<div class="ivan-frow">'
-            + '<div class="ivan-fg" style="display:flex;align-items:flex-end;padding-bottom:.25rem">'
+            + '<div class="ivan-fg" style="display:flex;align-items:flex-end;padding-bottom:.25rem;gap:1.5rem">'
             + '<label style="display:flex;align-items:center;gap:.5rem;color:' + C.fg + ';cursor:pointer">'
-            + '<input name="insured" type="checkbox" checked> Insured</label></div>'
+            + '<input name="insured" type="checkbox" checked> Insured</label>'
+            + '<label style="display:flex;align-items:center;gap:.5rem;color:' + C.fg + ';cursor:pointer">'
+            + '<input name="onTollwayAccount" type="checkbox"> On Tollway Account</label>'
+            + '</div>'
             + '</div>'
             + _fgroup('Notes', '<textarea name="notes" class="ivan-input ivan-ta" rows="2" placeholder="Optional notes"></textarea>')
             + '</div>'
@@ -847,6 +1005,7 @@ var IvanOpsApp = (function () {
             + _fgroup('Estimated Cost', '<input name="estimatedCost" type="number" step="0.01" class="ivan-input" placeholder="0.00">')
             + '</div>'
             + _fgroup('Mileage Due', '<input name="milageDue" type="number" class="ivan-input" placeholder="Optional odometer reading">')
+            + _fgroup('Assignee', '<input name="assignee" class="ivan-input" placeholder="Who is responsible? (optional)">')
             + '</div>'
             + '<div class="ivan-modal-ftr">'
             + '<button class="ivan-btn ivan-btn-ghost" data-action="close-maint-modal">Cancel</button>'
@@ -903,6 +1062,7 @@ var IvanOpsApp = (function () {
                 + '</select>')
             + _fgroup('Payment Date', '<input name="hist_paymentDate" type="date" class="ivan-input">')
             + '</div>'
+            + _fgroup('Assignee', '<input name="hist_assignee" class="ivan-input" placeholder="Optional">')
             + '</div>'
             + '<div class="ivan-modal-ftr" style="justify-content:space-between">'
             + '<button class="ivan-btn ivan-btn-danger" data-action="delete-hist-record">Delete</button>'
@@ -949,6 +1109,7 @@ var IvanOpsApp = (function () {
                 + '</select>')
             + _fgroup('Payment Date', '<input name="paymentDate" type="date" class="ivan-input">')
             + '</div>'
+            + _fgroup('Assignee', '<input name="assignee" class="ivan-input" placeholder="Who handled this invoice? (optional)">')
             + '</div>'
             + '<div class="ivan-modal-ftr">'
             + '<button class="ivan-btn ivan-btn-ghost" data-action="close-inv-modal">Cancel</button>'
@@ -1016,6 +1177,7 @@ var IvanOpsApp = (function () {
                 _clearModal('ivan-equip-modal');
                 _fillForm('ivan-equip-modal', eq);
                 document.querySelector('#ivan-equip-modal [name="insured"]').checked = !!eq.insured;
+                document.querySelector('#ivan-equip-modal [name="onTollwayAccount"]').checked = !!eq.onTollwayAccount;
                 document.getElementById('ivan-equip-modal-title').textContent = 'Edit Equipment';
                 var sb = document.getElementById('ivan-equip-save-btn');
                 sb.dataset.editid = eq.id; sb.textContent = 'Save Changes';
@@ -1028,7 +1190,8 @@ var IvanOpsApp = (function () {
                 if (!data.type || !data.unitNumber) { alert('Type and Unit Number are required.'); return; }
                 data.year    = data.year    ? parseInt(data.year, 10)    : null;
                 data.mileage = data.mileage ? parseInt(data.mileage, 10) : null;
-                data.insured = !!document.querySelector('#ivan-equip-modal [name="insured"]').checked;
+                data.insured          = !!document.querySelector('#ivan-equip-modal [name="insured"]').checked;
+                data.onTollwayAccount = !!document.querySelector('#ivan-equip-modal [name="onTollwayAccount"]').checked;
                 data.active  = true;
                 var eid = btn.dataset.editid;
                 if (eid) {
@@ -1115,7 +1278,8 @@ var IvanOpsApp = (function () {
                     priority: apiPriority,
                     status:   data.status || 'upcoming',
                     notes:    data.description || '',
-                    autoDot:  false
+                    autoDot:  false,
+                    assignee: data.assignee || ''
                 };
                 _api('POST', '/api/ivan/tasks', taskPayload).then(function() {
                     _closeModal('ivan-maint-modal');
@@ -1215,6 +1379,7 @@ var IvanOpsApp = (function () {
                 document.querySelector('#ivan-hist-modal [name="hist_description"]').value   = inv.description   || '';
                 document.querySelector('#ivan-hist-modal [name="hist_paymentMethod"]').value = inv.paymentMethod || '';
                 document.querySelector('#ivan-hist-modal [name="hist_paymentDate"]').value   = inv.paymentDate   || '';
+                document.querySelector('#ivan-hist-modal [name="hist_assignee"]').value      = inv.assignee      || '';
                 _openModal('ivan-hist-modal');
                 return;
             }
@@ -1227,7 +1392,8 @@ var IvanOpsApp = (function () {
                     amount:        parseFloat(document.querySelector('#ivan-hist-modal [name="hist_totalAmount"]').value) || 0,
                     description:   document.querySelector('#ivan-hist-modal [name="hist_description"]').value,
                     paymentMethod: document.querySelector('#ivan-hist-modal [name="hist_paymentMethod"]').value || '',
-                    paymentDate:   document.querySelector('#ivan-hist-modal [name="hist_paymentDate"]').value   || ''
+                    paymentDate:   document.querySelector('#ivan-hist-modal [name="hist_paymentDate"]').value   || '',
+                    assignee:      document.querySelector('#ivan-hist-modal [name="hist_assignee"]').value      || ''
                 };
                 _api('PUT', '/api/ivan/invoices/' + pid, payload).then(function() {
                     _closeModal('ivan-hist-modal');
@@ -1260,7 +1426,8 @@ var IvanOpsApp = (function () {
                     amount:        parseFloat(data.totalAmount) || 0,
                     description:   data.description || '',
                     paymentMethod: data.paymentMethod || '',
-                    paymentDate:   data.paymentDate   || ''
+                    paymentDate:   data.paymentDate   || '',
+                    assignee:      data.assignee || ''
                 };
                 _api('POST', '/api/ivan/invoices', invPayload).then(function() {
                     _es.histPage = 0;
@@ -1339,6 +1506,34 @@ var IvanOpsApp = (function () {
             if (e.target.dataset.action === 'set-ownership') {
                 e.stopPropagation();
                 _api('PUT', '/api/ivan/equipment/' + e.target.dataset.equipid, { ownership: e.target.value });
+            }
+        });
+
+        // Maintenance history column sort
+        container.addEventListener('click', function (e) {
+            var th = e.target.closest('[data-histsort]');
+            if (!th) return;
+            var col = th.dataset.histsort;
+            if (_es.histSortCol === col) {
+                _es.histSortDir = _es.histSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                _es.histSortCol = col;
+                _es.histSortDir = 'desc';
+            }
+            _es.histPage = 0;
+            _renderEquipmentTab();
+        });
+
+        // Maintenance history filters
+        container.addEventListener('change', function (e) {
+            if (e.target.dataset.action === 'hist-filter-equip') {
+                _es.histFilterEquip = e.target.value; _es.histPage = 0; _renderEquipmentTab();
+            }
+            if (e.target.dataset.action === 'hist-filter-paid') {
+                _es.histFilterPaid = e.target.value; _es.histPage = 0; _renderEquipmentTab();
+            }
+            if (e.target.dataset.action === 'hist-filter-assignee') {
+                _es.histFilterAssignee = e.target.value; _es.histPage = 0; _renderEquipmentTab();
             }
         });
 

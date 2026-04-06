@@ -151,7 +151,13 @@ class IvanEquipment(db.Model):
     mileage       = db.Column(db.Integer,     nullable=True)
     ownership     = db.Column(db.String(50),  default='owned')
     insured       = db.Column(db.Boolean,     default=True)
-    dot_inspection_date = db.Column(db.String(20), default='')
+    dot_inspection_date       = db.Column(db.String(20), default='')
+    ifta_expiration_date      = db.Column(db.String(20), default='')
+    irp_expiration_date       = db.Column(db.String(20), default='')
+    assigned_driver_id        = db.Column(db.String(50), default='')
+    insurance_expiration_date = db.Column(db.String(20), default='')
+    fleet_manager_assignee    = db.Column(db.String(50), default='')   # 'jason' | 'ryne' | ''
+    on_tollway_account        = db.Column(db.Boolean,    default=False)
     active        = db.Column(db.Boolean,     default=True)
     notes         = db.Column(db.Text,        default='')
     created_at    = db.Column(db.DateTime,    default=datetime.utcnow)
@@ -167,6 +173,12 @@ class IvanEquipment(db.Model):
             'model': self.model or '', 'year': self.year, 'mileage': self.mileage,
             'ownership': self.ownership or 'owned', 'insured': self.insured,
             'dotInspectionDate': self.dot_inspection_date or '',
+            'iftaExpirationDate': self.ifta_expiration_date or '',
+            'irpExpirationDate': self.irp_expiration_date or '',
+            'assignedDriverId': self.assigned_driver_id or '',
+            'insuranceExpirationDate': self.insurance_expiration_date or '',
+            'fleetManagerAssignee': self.fleet_manager_assignee or '',
+            'onTollwayAccount': bool(self.on_tollway_account),
             'active': self.active, 'notes': self.notes or '',
             'createdAt': self.created_at.isoformat() if self.created_at else ''
         }
@@ -181,6 +193,7 @@ class IvanTask(db.Model):
     status     = db.Column(db.String(20),  default='upcoming')  # 'upcoming' | 'complete'
     notes      = db.Column(db.Text,        default='')
     auto_dot   = db.Column(db.Boolean,     default=False)
+    assignee   = db.Column(db.String(100), default='')
     created_at = db.Column(db.DateTime,    default=datetime.utcnow)
 
     def to_dict(self):
@@ -188,7 +201,7 @@ class IvanTask(db.Model):
             'id': self.id, 'equipId': self.equip_id, 'title': self.title,
             'dueDate': self.due_date or '', 'priority': self.priority or 'med',
             'status': self.status or 'upcoming', 'notes': self.notes or '',
-            'autoDot': self.auto_dot,
+            'autoDot': self.auto_dot, 'assignee': self.assignee or '',
             'createdAt': self.created_at.isoformat() if self.created_at else ''
         }
 
@@ -203,6 +216,7 @@ class IvanInvoice(db.Model):
     invoice_number = db.Column(db.String(100), default='')
     payment_method = db.Column(db.String(100), default='')
     payment_date   = db.Column(db.String(20),  default='')
+    assignee       = db.Column(db.String(100), default='')
     created_at     = db.Column(db.DateTime,    default=datetime.utcnow)
 
     def to_dict(self):
@@ -213,6 +227,7 @@ class IvanInvoice(db.Model):
             'invoiceNumber': self.invoice_number or '',
             'paymentMethod': self.payment_method or '',
             'paymentDate': self.payment_date or '',
+            'assignee': self.assignee or '',
             'createdAt': self.created_at.isoformat() if self.created_at else ''
         }
 

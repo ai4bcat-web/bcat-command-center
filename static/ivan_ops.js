@@ -185,11 +185,14 @@ var IvanOpsApp = (function () {
         var repairSpend = _invoices
             .filter(function (inv) { return !cutoff || (inv.invoiceDate || '') >= cutoff; })
             .reduce(function (s, inv) { return s + (inv.totalAmount || 0); }, 0);
+        var today = _today();
+        var in30  = new Date(); in30.setDate(in30.getDate() + 30);
+        var in30s = in30.toISOString().slice(0, 10);
         return {
             trucks:       active.filter(function (e) { return e.type === 'truck';   }).length,
             trailers:     active.filter(function (e) { return e.type === 'trailer'; }).length,
-            insured:      active.filter(function (e) { return e.insured;  }).length,
-            notInsured:   active.filter(function (e) { return !e.insured; }).length,
+            insExpiring:  active.filter(function (e) { return e.insuranceExpirationDate && e.insuranceExpirationDate >= today && e.insuranceExpirationDate <= in30s; }).length,
+            insExpired:   active.filter(function (e) { return !e.insuranceExpirationDate || e.insuranceExpirationDate < today; }).length,
             upcoming:     upcoming.length,
             overdue:      overdue.length,
             highPriority: high.length,
@@ -484,8 +487,8 @@ var IvanOpsApp = (function () {
         return '<div class="kpi-grid" style="margin-bottom:1.5rem">'
             + card('Trucks',              s.trucks)
             + card('Trailers',            s.trailers)
-            + card('Insured',             s.insured, false, false, true)
-            + card('Not Insured',         s.notInsured, false, s.notInsured > 0)
+            + card('Ins. Expiring ≤30d',  s.insExpiring, false, s.insExpiring > 0)
+            + card('Uninsured / Expired', s.insExpired,  false, s.insExpired > 0)
             + card('Upcoming Maintenance',s.upcoming)
             + card('Overdue',             s.overdue, s.overdue > 0)
             + card('High Priority',       s.highPriority, false, s.highPriority > 0)
@@ -830,7 +833,6 @@ var IvanOpsApp = (function () {
                 + '<td>' + _esc(e.plate || '—') + '</td>'
                 + '<td>' + _dotInspBadge(e.dotInspectionDate) + '</td>'
                 + (isTruckOnly || _es.filter === 'all' ? iftaCell + irpCell + driverCell : '')
-                + '<td>' + _insuranceExpiryBadge(e.insuranceExpirationDate) + '</td>'
                 + '<td>' + _fmBadge(e.fleetManagerAssignee) + '</td>'
                 + '<td>' + _tollwayBadge(e.onTollwayAccount) + '</td>'
                 + '<td>' + taskCell + '</td>'
@@ -844,7 +846,7 @@ var IvanOpsApp = (function () {
                 + '</tr>';
         }).join('');
 
-        var colCount = 8 + (isTruckOnly || _es.filter === 'all' ? 3 : 0) + 1;
+        var colCount = 7 + (isTruckOnly || _es.filter === 'all' ? 3 : 0) + 1;
 
         var eStart = total === 0 ? 0 : page * EQUIP_PAGE_SIZE + 1;
         var eEnd   = Math.min(page * EQUIP_PAGE_SIZE + EQUIP_PAGE_SIZE, total);
@@ -878,7 +880,6 @@ var IvanOpsApp = (function () {
                   + _sortTh('IRP Exp.','irpExpirationDate')
                   + '<th>Driver</th>'
                 : '')
-            + '<th>Insurance</th>'
             + '<th>Fleet Mgr</th>'
             + '<th>Tollway</th>'
             + _sortTh('Open Tasks',         'openTasks')
@@ -1044,23 +1045,13 @@ var IvanOpsApp = (function () {
             + _fgroup('IFTA Expiration Date (trucks)', '<input name="iftaExpirationDate" type="date" class="ivan-input">')
             + _fgroup('IRP Expiration Date (trucks)',  '<input name="irpExpirationDate"  type="date" class="ivan-input">')
             + '</div><div class="ivan-frow">'
-            + _fgroup('Assigned Driver (trucks)',
-                (function(){
-                    var opts = '<option value="">— Unassigned —</option>'
-                        + _drivers.map(function(d){ return '<option value="' + d.id + '">' + _esc(d.name) + '</option>'; }).join('');
-                    return '<select name="assignedDriverId" class="ivan-input">' + opts + '</select>';
-                })())
             + _fgroup('Fleet Manager',
                 '<select name="fleetManagerAssignee" class="ivan-input">'
                 + '<option value="">— None —</option>'
                 + '<option value="jason">Jason</option>'
                 + '<option value="ryne">Ryne</option>'
                 + '</select>')
-            + '</div>'
-            + '<div class="ivan-frow">'
             + '<div class="ivan-fg" style="display:flex;align-items:flex-end;padding-bottom:.25rem;gap:1.5rem">'
-            + '<label style="display:flex;align-items:center;gap:.5rem;color:' + C.fg + ';cursor:pointer">'
-            + '<input name="insured" type="checkbox" checked> Insured</label>'
             + '<label style="display:flex;align-items:center;gap:.5rem;color:' + C.fg + ';cursor:pointer">'
             + '<input name="onTollwayAccount" type="checkbox"> On Tollway Account</label>'
             + '</div>'
@@ -1100,7 +1091,7 @@ var IvanOpsApp = (function () {
             + _fgroup('Estimated Cost', '<input name="estimatedCost" type="number" step="0.01" class="ivan-input" placeholder="0.00">')
             + '</div>'
             + _fgroup('Mileage Due', '<input name="milageDue" type="number" class="ivan-input" placeholder="Optional odometer reading">')
-            + _fgroup('Assignee', '<input name="assignee" class="ivan-input" placeholder="Who is responsible? (optional)">')
+            + _fgroup('Assignee', '<select name="assignee" class="ivan-input"><option value="">— Unassigned —</option><option value="Jason">Jason</option><option value="Ryne">Ryne</option></select>')
             + '</div>'
             + '<div class="ivan-modal-ftr">'
             + '<button class="ivan-btn ivan-btn-ghost" data-action="close-maint-modal">Cancel</button>'
@@ -1269,7 +1260,6 @@ var IvanOpsApp = (function () {
                 if (!eq) return;
                 _clearModal('ivan-equip-modal');
                 _fillForm('ivan-equip-modal', eq);
-                document.querySelector('#ivan-equip-modal [name="insured"]').checked = !!eq.insured;
                 document.querySelector('#ivan-equip-modal [name="onTollwayAccount"]').checked = !!eq.onTollwayAccount;
                 document.getElementById('ivan-equip-modal-title').textContent = 'Edit Equipment';
                 var sb = document.getElementById('ivan-equip-save-btn');
@@ -1283,7 +1273,6 @@ var IvanOpsApp = (function () {
                 if (!data.type || !data.unitNumber) { alert('Type and Unit Number are required.'); return; }
                 data.year    = data.year    ? parseInt(data.year, 10)    : null;
                 data.mileage = data.mileage ? parseInt(data.mileage, 10) : null;
-                data.insured          = !!document.querySelector('#ivan-equip-modal [name="insured"]').checked;
                 data.onTollwayAccount = !!document.querySelector('#ivan-equip-modal [name="onTollwayAccount"]').checked;
                 data.active  = true;
                 var eid = btn.dataset.editid;

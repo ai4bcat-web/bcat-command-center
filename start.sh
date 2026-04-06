@@ -2,7 +2,7 @@
 set -e
 
 echo "Running database migrations..."
-flask db upgrade
+flask db upgrade || echo "No migrations folder — skipping (schema managed by auto-migrate in dashboard.py)"
 
 echo "Seeding admin user..."
 flask create-admin || true

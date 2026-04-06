@@ -293,15 +293,25 @@ var IvanOpsApp = (function () {
         return '<span class="ivan-badge ivan-badge-done" title="' + title + '">Due ' + _fmtDate(nextStr) + '</span>';
     }
 
-    // Direct expiry date badge (IFTA, IRP, insurance expiry — not last+1yr like DOT)
+    // Direct expiry date badge (IFTA, IRP — not last+1yr like DOT)
     function _expiryBadge(dateStr) {
         if (!dateStr) return '<span style="color:' + C.muted + '">—</span>';
         var days = _daysUntil(dateStr);
         if (days < 0)
             return '<span class="ivan-badge ivan-badge-overdue" title="Expired ' + _fmtDate(dateStr) + '">' + Math.abs(days) + 'd expired</span>';
-        if (days <= 60)
-            return '<span class="ivan-badge ivan-badge-warn" title="Expiring soon">' + _fmtDate(dateStr) + '</span>';
+        if (days <= 30)
+            return '<span class="ivan-badge ivan-badge-warn" title="Expiring soon">⚠ ' + _fmtDate(dateStr) + '</span>';
         return '<span class="ivan-badge ivan-badge-done">' + _fmtDate(dateStr) + '</span>';
+    }
+    // Insurance badge — shows "Not Insured" when no expiry date set
+    function _insuranceExpiryBadge(dateStr) {
+        if (!dateStr) return '<span class="ivan-badge ivan-badge-uninsured">Not Insured</span>';
+        var days = _daysUntil(dateStr);
+        if (days < 0)
+            return '<span class="ivan-badge ivan-badge-overdue" title="Expired ' + _fmtDate(dateStr) + '">Ins. Expired</span>';
+        if (days <= 30)
+            return '<span class="ivan-badge ivan-badge-warn" title="Insurance expiring soon">⚠ Ins. ' + _fmtDate(dateStr) + '</span>';
+        return '<span class="ivan-badge ivan-badge-insured" title="Insured until ' + _fmtDate(dateStr) + '">Insured · ' + _fmtDate(dateStr) + '</span>';
     }
     function _fmBadge(fm) {
         if (!fm) return '<span style="color:' + C.muted + '">—</span>';
@@ -742,8 +752,12 @@ var IvanOpsApp = (function () {
             var driverCell = '';
             if (isTruckOnly || _es.filter === 'all') {
                 if (e.type === 'truck') {
-                    var drv = _findDriver(e.assignedDriverId);
-                    driverCell = '<td>' + (drv ? _esc(drv.name) : '<span style="color:' + C.muted + '">Unassigned</span>') + '</td>';
+                    // Look up the driver who has this truck assigned (source of truth is driver record)
+                    var drv = _drivers.find(function(d){ return d.assignedTruckId === e.id; }) || null;
+                    var isOO = drv && drv.driverType === 'owner_operator';
+                    driverCell = '<td>' + (drv
+                        ? _esc(drv.name) + (isOO ? '&nbsp;<span class="ivan-badge ivan-badge-oo" style="font-size:10px">OO</span>' : '')
+                        : '<span style="color:' + C.muted + '">Unassigned</span>') + '</td>';
                 } else if (_es.filter === 'all') {
                     driverCell = '<td style="color:' + C.muted + '">—</td>';
                 }
@@ -768,8 +782,7 @@ var IvanOpsApp = (function () {
                 + '<td>' + _esc(e.plate || '—') + '</td>'
                 + '<td>' + _dotInspBadge(e.dotInspectionDate) + '</td>'
                 + (isTruckOnly || _es.filter === 'all' ? iftaCell + irpCell + driverCell : '')
-                + '<td>' + _insuranceBadge(e.insured) + '</td>'
-                + '<td>' + _expiryBadge(e.insuranceExpirationDate) + '</td>'
+                + '<td>' + _insuranceExpiryBadge(e.insuranceExpirationDate) + '</td>'
                 + '<td>' + _fmBadge(e.fleetManagerAssignee) + '</td>'
                 + '<td>' + _tollwayBadge(e.onTollwayAccount) + '</td>'
                 + '<td>' + taskCell + '</td>'
@@ -783,7 +796,7 @@ var IvanOpsApp = (function () {
                 + '</tr>';
         }).join('');
 
-        var colCount = 9 + (isTruckOnly || _es.filter === 'all' ? 3 : 0) + 1;
+        var colCount = 8 + (isTruckOnly || _es.filter === 'all' ? 3 : 0) + 1;
 
         var eStart = total === 0 ? 0 : page * EQUIP_PAGE_SIZE + 1;
         var eEnd   = Math.min(page * EQUIP_PAGE_SIZE + EQUIP_PAGE_SIZE, total);
@@ -817,8 +830,7 @@ var IvanOpsApp = (function () {
                   + _sortTh('IRP Exp.','irpExpirationDate')
                   + '<th>Driver</th>'
                 : '')
-            + _sortTh('Insurance',          'insured')
-            + '<th>Ins. Expiry</th>'
+            + '<th>Insurance</th>'
             + '<th>Fleet Mgr</th>'
             + '<th>Tollway</th>'
             + _sortTh('Open Tasks',         'openTasks')
@@ -893,6 +905,13 @@ var IvanOpsApp = (function () {
             return '<div class="ivan-dfield"><div class="ivan-dlbl">' + lbl + '</div><div class="ivan-dval">' + val + '</div></div>';
         }
 
+        var isTruck = eq.type === 'truck';
+        var detailDrv = _drivers.find(function(d){ return d.assignedTruckId === eq.id; }) || null;
+        var detailIsOO = detailDrv && detailDrv.driverType === 'owner_operator';
+        var driverVal = detailDrv
+            ? _esc(detailDrv.name) + (detailIsOO ? '&nbsp;<span class="ivan-badge ivan-badge-oo" style="font-size:10px">OO</span>' : '')
+            : '<span style="color:' + C.muted + '">Unassigned</span>';
+
         return '<div class="chart-card ivan-detail">'
             + '<div class="ivan-section-hdr" style="margin-bottom:1rem">'
             + '<div>'
@@ -913,16 +932,14 @@ var IvanOpsApp = (function () {
             + dfield('Plate', _esc(eq.plate || '—'))
             + dfield('Mileage', eq.mileage != null ? Number(eq.mileage).toLocaleString() + ' mi' : '—')
             + dfield('DOT Inspection', eq.dotInspectionDate ? _dotInspBadge(eq.dotInspectionDate) + '&nbsp;<small style="color:' + C.muted + '">Last: ' + _fmtDate(eq.dotInspectionDate) + '</small>' : '<span style="color:' + C.muted + '">Not set</span>')
+            + dfield('Insurance', _insuranceExpiryBadge(eq.insuranceExpirationDate))
+            + (isTruck ? dfield('IFTA Expiry', _expiryBadge(eq.iftaExpirationDate)) : '')
+            + (isTruck ? dfield('IRP Expiry',  _expiryBadge(eq.irpExpirationDate))  : '')
+            + (isTruck ? dfield('Assigned Driver', driverVal + (detailIsOO ? '&nbsp;<span style="color:' + C.muted + ';font-size:11px">(Owner Operator)</span>' : '')) : '')
+            + dfield('Fleet Manager', eq.fleetManagerAssignee ? _fmBadge(eq.fleetManagerAssignee) : '<span style="color:' + C.muted + '">—</span>')
+            + dfield('Tollway Account', _tollwayBadge(eq.onTollwayAccount))
             + dfield('Notes', _esc(eq.notes || '—'))
             + dfield(_es.spendPeriod === 'year' ? 'Repair Spend (YTD)' : 'Repair Spend (All Time)', _money(spend))
-            + '</div>'
-
-            + '<div style="margin:.75rem 0;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">'
-            + '<span style="font-weight:600;color:' + C.fg + '">Insurance:</span>'
-            + _insuranceBadge(eq.insured)
-            + '<label class="ivan-toggle" title="Toggle insurance">'
-            + '<input type="checkbox" ' + (eq.insured ? 'checked' : '') + ' data-action="toggle-ins" data-equipid="' + eq.id + '">'
-            + '<span class="ivan-toggle-track"><span class="ivan-toggle-thumb"></span></span></label>'
             + '</div>'
 
             + '<div class="ivan-detail-sub-hdr">'

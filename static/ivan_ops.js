@@ -52,7 +52,8 @@ var IvanOpsApp = (function () {
         histFilterPaid:     '',       // '' | 'paid' | 'unpaid'
         maintSortCol: 'dueDate',      // sort column for maintenance & compliance section
         maintSortDir: 'asc',          // 'asc' | 'desc'
-        maintFilterEquip: ''          // equipment id filter for maintenance section
+        maintFilterEquip: '',         // equipment id filter for maintenance section
+        bulkSelected: []              // array of equipment IDs selected for bulk edit
     };
     var _ds = {                       // drivers tab state
         search:     '',
@@ -428,6 +429,7 @@ var IvanOpsApp = (function () {
             _htmlMaintenanceHistory(),
             _htmlEquipmentList(filtered),
             _es.selectedId ? _htmlDetailPanel(_es.selectedId) : '',
+            _htmlBulkEditModal(),
             _htmlEquipModal(),
             _htmlMaintModal(),
             _htmlInvoiceModal(),
@@ -831,14 +833,29 @@ var IvanOpsApp = (function () {
                 }
             }
 
+            var hasOO = _drivers.some(function(d){ return d.assignedTruckId === e.id && d.driverType === 'owner_operator'; });
+            var bobtailCell = '';
+            if (isTruckOnly || _es.filter === 'all') {
+                if (e.type === 'truck') {
+                    bobtailCell = hasOO
+                        ? '<td>' + _expiryBadge(e.bobtailInsuranceDate) + '</td>'
+                        : '<td style="color:' + C.muted + '">—</td>';
+                } else if (_es.filter === 'all') {
+                    bobtailCell = '<td style="color:' + C.muted + '">—</td>';
+                }
+            }
+            var isBulkSel = _es.bulkSelected.indexOf(e.id) >= 0;
             return '<tr class="ivan-erow' + (sel ? ' ivan-erow-sel' : '') + '" data-action="select-equip" data-equipid="' + e.id + '">'
+                + '<td data-action="bulk-cb-cell" style="width:32px;text-align:center;padding:6px 4px;cursor:default">'
+                + '<input type="checkbox" data-action="bulk-cb" data-equipid="' + e.id + '"' + (isBulkSel ? ' checked' : '') + ' style="cursor:pointer;width:15px;height:15px">'
+                + '</td>'
                 + '<td>' + _typeBadge(e.type) + '</td>'
                 + '<td><strong>' + _esc(e.unitNumber) + '</strong>'
                 + (e.nickname ? '<br><small style="color:' + C.muted + '">' + _esc(e.nickname) + '</small>' : '') + '</td>'
                 + '<td>' + e.year + ' ' + _esc(e.make) + ' ' + _esc(e.model) + '</td>'
                 + '<td>' + _esc(e.plate || '—') + '</td>'
                 + '<td>' + _dotInspBadge(e.dotInspectionDate) + '</td>'
-                + (isTruckOnly || _es.filter === 'all' ? iftaCell + irpCell + driverCell : '')
+                + (isTruckOnly || _es.filter === 'all' ? iftaCell + irpCell + driverCell + bobtailCell : '')
                 + '<td>' + _fmBadge(e.fleetManagerAssignee) + '</td>'
                 + '<td>' + _tollwayBadge(e.onTollwayAccount) + '</td>'
                 + '<td>' + taskCell + '</td>'
@@ -852,7 +869,7 @@ var IvanOpsApp = (function () {
                 + '</tr>';
         }).join('');
 
-        var colCount = 7 + (isTruckOnly || _es.filter === 'all' ? 3 : 0) + 1;
+        var colCount = 8 + (isTruckOnly || _es.filter === 'all' ? 4 : 0) + 1;
 
         var eStart = total === 0 ? 0 : page * EQUIP_PAGE_SIZE + 1;
         var eEnd   = Math.min(page * EQUIP_PAGE_SIZE + EQUIP_PAGE_SIZE, total);
@@ -867,6 +884,16 @@ var IvanOpsApp = (function () {
             + (page >= totalPages - 1 ? ' disabled style="opacity:.35;cursor:default"' : '') + '>Next →</button>'
             + '</div></div>';
 
+        var allPageIds = pageItems.map(function(e){ return e.id; });
+        var allPageSel = allPageIds.length > 0 && allPageIds.every(function(id){ return _es.bulkSelected.indexOf(id) >= 0; });
+        var bulkBar = _es.bulkSelected.length > 0
+            ? '<div style="display:flex;align-items:center;gap:.75rem;padding:.6rem .75rem;background:#1e3a5f;border:1px solid #1e40af;border-radius:8px;margin-bottom:.75rem;flex-wrap:wrap">'
+            + '<span style="color:#93c5fd;font-weight:600">' + _es.bulkSelected.length + ' selected</span>'
+            + '<button class="ivan-btn ivan-btn-sm" data-action="bulk-edit-open">Edit Selected</button>'
+            + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="bulk-clear">Clear Selection</button>'
+            + '</div>'
+            : '';
+
         return '<div class="chart-card" style="margin-bottom:1.5rem">'
             + '<div class="ivan-section-hdr">'
             + '<div class="section-title" style="margin:0">Equipment</div>'
@@ -875,7 +902,9 @@ var IvanOpsApp = (function () {
             + '<input class="ivan-search" placeholder="Search unit, make, plate…" value="' + _esc(_es.search) + '" data-action="search-equip">'
             + '<button class="ivan-btn" data-action="open-add-equip">+ Add Equipment</button>'
             + '</div></div>'
+            + bulkBar
             + '<div class="table-wrap"><table class="ivan-table"><thead><tr>'
+            + '<th style="width:32px;text-align:center;padding:6px 4px"><input type="checkbox" data-action="bulk-select-all"' + (allPageSel ? ' checked' : '') + ' style="cursor:pointer;width:15px;height:15px" title="Select all on this page"></th>'
             + _sortTh('Type',               'type')
             + _sortTh('Unit',               'unitNumber')
             + _sortTh('Year / Make / Model','year')
@@ -885,6 +914,7 @@ var IvanOpsApp = (function () {
                 ? _sortTh('IFTA Exp.', 'iftaExpirationDate')
                   + _sortTh('IRP Exp.','irpExpirationDate')
                   + '<th>Driver</th>'
+                  + '<th>Bobtail Ins.</th>'
                 : '')
             + '<th>Fleet Mgr</th>'
             + '<th>Tollway</th>'
@@ -993,6 +1023,7 @@ var IvanOpsApp = (function () {
             + dfield('Insurance', _insuranceExpiryBadge(eq.insuranceExpirationDate))
             + (isTruck ? dfield('IFTA Expiry', _expiryBadge(eq.iftaExpirationDate)) : '')
             + (isTruck ? dfield('IRP Expiry',  _expiryBadge(eq.irpExpirationDate))  : '')
+            + (isTruck && detailDrvs.some(function(d){ return d.driverType === 'owner_operator'; }) ? dfield('Bobtail Insurance', _expiryBadge(eq.bobtailInsuranceDate)) : '')
             + (isTruck ? dfield('Assigned Driver' + (detailDrvs.length > 1 ? ' (' + detailDrvs.length + ')' : ''), driverVal) : '')
             + dfield('Fleet Manager', eq.fleetManagerAssignee ? _fmBadge(eq.fleetManagerAssignee) : '<span style="color:' + C.muted + '">—</span>')
             + dfield('Tollway Account', _tollwayBadge(eq.onTollwayAccount))
@@ -1060,6 +1091,11 @@ var IvanOpsApp = (function () {
                 + '<option value="jason">Jason</option>'
                 + '<option value="ryne">Ryne</option>'
                 + '</select>')
+            + '</div><div class="ivan-frow">'
+            + _fgroup('Bobtail Insurance Expiry (OO trucks)', '<input name="bobtailInsuranceDate" type="date" class="ivan-input">')
+            + '<div class="ivan-fg"></div>'
+            + '</div>'
+            + '<div class="ivan-frow">'
             + '<div class="ivan-fg" style="display:flex;align-items:flex-end;padding-bottom:.25rem;gap:1.5rem">'
             + '<label style="display:flex;align-items:center;gap:.5rem;color:' + C.fg + ';cursor:pointer">'
             + '<input name="onTollwayAccount" type="checkbox"> On Tollway Account</label>'
@@ -1070,6 +1106,31 @@ var IvanOpsApp = (function () {
             + '<div class="ivan-modal-ftr">'
             + '<button class="ivan-btn ivan-btn-ghost" data-action="close-equip-modal">Cancel</button>'
             + '<button class="ivan-btn" data-action="save-equip" id="ivan-equip-save-btn">Add Equipment</button>'
+            + '</div></div></div>';
+    }
+
+    function _htmlBulkEditModal() {
+        return '<div id="ivan-bulk-modal" class="ivan-overlay">'
+            + '<div class="ivan-modal">'
+            + '<div class="ivan-modal-hdr"><span id="ivan-bulk-modal-title">Bulk Edit Equipment</span>'
+            + '<button class="ivan-mclose" data-action="close-bulk-modal">✕</button></div>'
+            + '<div class="ivan-modal-body">'
+            + '<div class="ivan-phase-note">Only filled fields will be applied. Leave a field blank or "No change" to keep existing values on each selected unit.</div>'
+            + '<div class="ivan-frow">'
+            + _fgroup('Fleet Manager', '<select name="bulk_fleetManager" class="ivan-input"><option value="">— No change —</option><option value="jason">Jason</option><option value="ryne">Ryne</option></select>')
+            + _fgroup('Active Status', '<select name="bulk_active" class="ivan-input"><option value="">— No change —</option><option value="true">Active</option><option value="false">Inactive</option></select>')
+            + '</div><div class="ivan-frow">'
+            + _fgroup('On Tollway Account', '<select name="bulk_tollway" class="ivan-input"><option value="">— No change —</option><option value="true">Yes</option><option value="false">No</option></select>')
+            + _fgroup('Insurance Expiry', '<input name="bulk_insuranceExp" type="date" class="ivan-input">')
+            + '</div><div class="ivan-frow">'
+            + _fgroup('IFTA Expiry (trucks)', '<input name="bulk_iftaExp" type="date" class="ivan-input">')
+            + _fgroup('IRP Expiry (trucks)',  '<input name="bulk_irpExp"  type="date" class="ivan-input">')
+            + '</div>'
+            + _fgroup('Bobtail Insurance (OO trucks)', '<input name="bulk_bobtailExp" type="date" class="ivan-input">')
+            + '</div>'
+            + '<div class="ivan-modal-ftr">'
+            + '<button class="ivan-btn ivan-btn-ghost" data-action="close-bulk-modal">Cancel</button>'
+            + '<button class="ivan-btn" data-action="save-bulk-edit" id="ivan-bulk-save-btn">Apply to Selected</button>'
             + '</div></div></div>';
     }
 
@@ -1340,6 +1401,7 @@ var IvanOpsApp = (function () {
                 }
                 return;
             }
+            if (a === 'bulk-cb-cell' || a === 'bulk-cb' || a === 'bulk-select-all' || a === 'bulk-edit-open' || a === 'bulk-clear' || a === 'save-bulk-edit' || a === 'close-bulk-modal') return;
             if (a === 'close-detail') { _es.selectedId = null; _renderEquipmentTab(); return; }
 
             // ── Maintenance modal
@@ -1592,6 +1654,84 @@ var IvanOpsApp = (function () {
             if (!btn || btn.disabled) return;
             var p = parseInt(btn.dataset.equippage, 10);
             if (!isNaN(p) && p >= 0) { _es.equipPage = p; _renderEquipmentTab(); }
+        });
+
+        // Bulk checkbox handlers
+        container.addEventListener('click', function (e) {
+            var cb = e.target.closest('[data-action="bulk-cb"]');
+            if (!cb) return;
+            e.stopPropagation();
+            var id = cb.dataset.equipid;
+            var idx = _es.bulkSelected.indexOf(id);
+            if (idx >= 0) _es.bulkSelected.splice(idx, 1);
+            else _es.bulkSelected.push(id);
+            _renderEquipmentTab();
+        });
+
+        container.addEventListener('click', function (e) {
+            var cb = e.target.closest('[data-action="bulk-select-all"]');
+            if (!cb) return;
+            e.stopPropagation();
+            var filtered = _filteredEquipment();
+            var EQUIP_PAGE_SIZE = 15;
+            var page = Math.min(_es.equipPage, Math.max(0, Math.ceil(filtered.length / EQUIP_PAGE_SIZE) - 1));
+            var pageIds = filtered.slice(page * EQUIP_PAGE_SIZE, page * EQUIP_PAGE_SIZE + EQUIP_PAGE_SIZE).map(function(e){ return e.id; });
+            var allSel = pageIds.every(function(id){ return _es.bulkSelected.indexOf(id) >= 0; });
+            if (allSel) {
+                _es.bulkSelected = _es.bulkSelected.filter(function(id){ return pageIds.indexOf(id) < 0; });
+            } else {
+                pageIds.forEach(function(id){ if (_es.bulkSelected.indexOf(id) < 0) _es.bulkSelected.push(id); });
+            }
+            _renderEquipmentTab();
+        });
+
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-action="bulk-clear"]');
+            if (!btn) return;
+            _es.bulkSelected = [];
+            _renderEquipmentTab();
+        });
+
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-action="bulk-edit-open"]');
+            if (!btn) return;
+            _clearModal('ivan-bulk-modal');
+            document.getElementById('ivan-bulk-modal-title').textContent = 'Bulk Edit — ' + _es.bulkSelected.length + ' units';
+            _openModal('ivan-bulk-modal');
+        });
+
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-action="close-bulk-modal"]');
+            if (!btn) return;
+            _closeModal('ivan-bulk-modal');
+        });
+
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-action="save-bulk-edit"]');
+            if (!btn) return;
+            var fm      = document.querySelector('#ivan-bulk-modal [name="bulk_fleetManager"]').value;
+            var active  = document.querySelector('#ivan-bulk-modal [name="bulk_active"]').value;
+            var tollway = document.querySelector('#ivan-bulk-modal [name="bulk_tollway"]').value;
+            var insExp  = document.querySelector('#ivan-bulk-modal [name="bulk_insuranceExp"]').value;
+            var iftaExp = document.querySelector('#ivan-bulk-modal [name="bulk_iftaExp"]').value;
+            var irpExp  = document.querySelector('#ivan-bulk-modal [name="bulk_irpExp"]').value;
+            var bobtailExp = document.querySelector('#ivan-bulk-modal [name="bulk_bobtailExp"]').value;
+            var payload = {};
+            if (fm)         payload.fleetManagerAssignee   = fm;
+            if (active)     payload.active                 = active === 'true';
+            if (tollway)    payload.onTollwayAccount        = tollway === 'true';
+            if (insExp)     payload.insuranceExpirationDate = insExp;
+            if (iftaExp)    payload.iftaExpirationDate      = iftaExp;
+            if (irpExp)     payload.irpExpirationDate       = irpExp;
+            if (bobtailExp) payload.bobtailInsuranceDate    = bobtailExp;
+            if (Object.keys(payload).length === 0) { alert('No fields selected to update.'); return; }
+            var ids = _es.bulkSelected.slice();
+            var promises = ids.map(function(id){ return _api('PUT', '/api/ivan/equipment/' + id, payload); });
+            Promise.all(promises).then(function() {
+                _es.bulkSelected = [];
+                _closeModal('ivan-bulk-modal');
+                _loadAll(function() { _renderEquipmentTab(); });
+            });
         });
 
         // Maintenance history pagination

@@ -155,9 +155,10 @@ class IvanEquipment(db.Model):
     ifta_expiration_date      = db.Column(db.String(20), default='')
     irp_expiration_date       = db.Column(db.String(20), default='')
     assigned_driver_id        = db.Column(db.String(50), default='')
-    insurance_expiration_date = db.Column(db.String(20), default='')
-    fleet_manager_assignee    = db.Column(db.String(50), default='')   # 'jason' | 'ryne' | ''
-    on_tollway_account        = db.Column(db.Boolean,    default=False)
+    insurance_expiration_date  = db.Column(db.String(20), default='')
+    bobtail_insurance_date     = db.Column(db.String(20), default='')
+    fleet_manager_assignee     = db.Column(db.String(50), default='')   # 'jason' | 'ryne' | ''
+    on_tollway_account         = db.Column(db.Boolean,    default=False)
     active        = db.Column(db.Boolean,     default=True)
     notes         = db.Column(db.Text,        default='')
     created_at    = db.Column(db.DateTime,    default=datetime.utcnow)
@@ -177,6 +178,7 @@ class IvanEquipment(db.Model):
             'irpExpirationDate': self.irp_expiration_date or '',
             'assignedDriverId': self.assigned_driver_id or '',
             'insuranceExpirationDate': self.insurance_expiration_date or '',
+            'bobtailInsuranceDate': self.bobtail_insurance_date or '',
             'fleetManagerAssignee': self.fleet_manager_assignee or '',
             'onTollwayAccount': bool(self.on_tollway_account),
             'active': self.active, 'notes': self.notes or '',

@@ -197,9 +197,10 @@ if config.DATABASE_URL:
                             ('ifta_expiration_date',      "VARCHAR(20) DEFAULT ''"),
                             ('irp_expiration_date',       "VARCHAR(20) DEFAULT ''"),
                             ('assigned_driver_id',        "VARCHAR(50) DEFAULT ''"),
-                            ('insurance_expiration_date', "VARCHAR(20) DEFAULT ''"),
-                            ('fleet_manager_assignee',    "VARCHAR(50) DEFAULT ''"),
-                            ('on_tollway_account',        'BOOLEAN DEFAULT FALSE'),
+                            ('insurance_expiration_date',  "VARCHAR(20) DEFAULT ''"),
+                            ('bobtail_insurance_date',     "VARCHAR(20) DEFAULT ''"),
+                            ('fleet_manager_assignee',     "VARCHAR(50) DEFAULT ''"),
+                            ('on_tollway_account',         'BOOLEAN DEFAULT FALSE'),
                         ]:
                             if col not in ecols:
                                 conn.execute(_st(
@@ -1184,6 +1185,7 @@ def ivan_equipment_update(eid):
     e.irp_expiration_date=d.get('irpExpirationDate', e.irp_expiration_date)
     e.assigned_driver_id=d.get('assignedDriverId', e.assigned_driver_id)
     e.insurance_expiration_date=d.get('insuranceExpirationDate', e.insurance_expiration_date)
+    e.bobtail_insurance_date=d.get('bobtailInsuranceDate', e.bobtail_insurance_date)
     e.fleet_manager_assignee=d.get('fleetManagerAssignee', e.fleet_manager_assignee)
     e.on_tollway_account=d.get('onTollwayAccount', e.on_tollway_account)
     e.active=d.get('active', e.active); e.notes=d.get('notes', e.notes)

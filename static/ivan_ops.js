@@ -55,7 +55,8 @@ var IvanOpsApp = (function () {
         maintFilterEquip: ''          // equipment id filter for maintenance section
     };
     var _ds = {                       // drivers tab state
-        search: ''
+        search:     '',
+        typeFilter: 'all'             // 'all' | 'company' | 'oo'
     };
 
     // Container IDs (set on mount)
@@ -803,12 +804,17 @@ var IvanOpsApp = (function () {
             var driverCell = '';
             if (isTruckOnly || _es.filter === 'all') {
                 if (e.type === 'truck') {
-                    // Look up the driver who has this truck assigned (source of truth is driver record)
-                    var drv = _drivers.find(function(d){ return d.assignedTruckId === e.id; }) || null;
-                    var isOO = drv && drv.driverType === 'owner_operator';
-                    driverCell = '<td>' + (drv
-                        ? _esc(drv.name) + (isOO ? '&nbsp;<span class="ivan-badge ivan-badge-oo" style="font-size:10px">OO</span>' : '')
-                        : '<span style="color:' + C.muted + '">Unassigned</span>') + '</td>';
+                    // Find ALL drivers assigned to this truck (multiple allowed)
+                    var truckDrivers = _drivers.filter(function(d){ return d.assignedTruckId === e.id; });
+                    if (truckDrivers.length === 0) {
+                        driverCell = '<td><span style="color:' + C.muted + '">Unassigned</span></td>';
+                    } else {
+                        var drvHtml = truckDrivers.map(function(drv) {
+                            var oo = drv.driverType === 'owner_operator';
+                            return _esc(drv.name) + (oo ? '&nbsp;<span class="ivan-badge ivan-badge-oo" style="font-size:10px">OO</span>' : '');
+                        }).join('<br>');
+                        driverCell = '<td>' + drvHtml + '</td>';
+                    }
                 } else if (_es.filter === 'all') {
                     driverCell = '<td style="color:' + C.muted + '">—</td>';
                 }
@@ -955,11 +961,14 @@ var IvanOpsApp = (function () {
         }
 
         var isTruck = eq.type === 'truck';
-        var detailDrv = _drivers.find(function(d){ return d.assignedTruckId === eq.id; }) || null;
-        var detailIsOO = detailDrv && detailDrv.driverType === 'owner_operator';
-        var driverVal = detailDrv
-            ? _esc(detailDrv.name) + (detailIsOO ? '&nbsp;<span class="ivan-badge ivan-badge-oo" style="font-size:10px">OO</span>' : '')
-            : '<span style="color:' + C.muted + '">Unassigned</span>';
+        var detailDrvs = _drivers.filter(function(d){ return d.assignedTruckId === eq.id; });
+        var driverVal = detailDrvs.length === 0
+            ? '<span style="color:' + C.muted + '">Unassigned</span>'
+            : detailDrvs.map(function(drv) {
+                var oo = drv.driverType === 'owner_operator';
+                return _esc(drv.name)
+                    + (oo ? '&nbsp;<span class="ivan-badge ivan-badge-oo" style="font-size:10px">OO</span>&nbsp;<span style="color:' + C.muted + ';font-size:11px">(Owner Operator)</span>' : '');
+              }).join('<br>');
 
         return '<div class="chart-card ivan-detail">'
             + '<div class="ivan-section-hdr" style="margin-bottom:1rem">'
@@ -984,7 +993,7 @@ var IvanOpsApp = (function () {
             + dfield('Insurance', _insuranceExpiryBadge(eq.insuranceExpirationDate))
             + (isTruck ? dfield('IFTA Expiry', _expiryBadge(eq.iftaExpirationDate)) : '')
             + (isTruck ? dfield('IRP Expiry',  _expiryBadge(eq.irpExpirationDate))  : '')
-            + (isTruck ? dfield('Assigned Driver', driverVal + (detailIsOO ? '&nbsp;<span style="color:' + C.muted + ';font-size:11px">(Owner Operator)</span>' : '')) : '')
+            + (isTruck ? dfield('Assigned Driver' + (detailDrvs.length > 1 ? ' (' + detailDrvs.length + ')' : ''), driverVal) : '')
             + dfield('Fleet Manager', eq.fleetManagerAssignee ? _fmBadge(eq.fleetManagerAssignee) : '<span style="color:' + C.muted + '">—</span>')
             + dfield('Tollway Account', _tollwayBadge(eq.onTollwayAccount))
             + dfield('Notes', _esc(eq.notes || '—'))
@@ -1722,6 +1731,8 @@ var IvanOpsApp = (function () {
     function _htmlDrivers() {
         var q = _ds.search.toLowerCase();
         var list = _drivers.filter(function (d) {
+            if (_ds.typeFilter === 'oo'      && d.driverType !== 'owner_operator') return false;
+            if (_ds.typeFilter === 'company' && d.driverType !== 'company_driver') return false;
             if (!q) return true;
             return (d.name  || '').toLowerCase().indexOf(q) >= 0
                 || (d.phone || '').toLowerCase().indexOf(q) >= 0
@@ -1787,8 +1798,15 @@ var IvanOpsApp = (function () {
             + '<button class="ivan-btn" data-action="save-driver" id="ivan-driver-save-btn">Add Driver</button>'
             + '</div></div></div>';
 
+        var typeBtns = [['all','All'],['company','Company'],['oo','Owner Op']].map(function(p){
+            return '<button class="ivan-fbtn' + (_ds.typeFilter === p[0] ? ' active' : '') + '" data-drivertype="' + p[0] + '">' + p[1] + '</button>';
+        }).join('');
+
         return '<div class="ivan-section-hdr" style="margin-bottom:1.25rem">'
+            + '<div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">'
             + '<div class="section-title" style="margin:0">Drivers</div>'
+            + '<div class="ivan-fgroup">' + typeBtns + '</div>'
+            + '</div>'
             + '<div style="display:flex;gap:.6rem;align-items:center">'
             + '<input class="ivan-search" placeholder="Search name, phone, CDL…" value="' + _esc(_ds.search) + '" data-action="search-driver">'
             + '<button class="ivan-btn" data-action="open-add-driver">+ Add Driver</button>'
@@ -1865,6 +1883,13 @@ var IvanOpsApp = (function () {
                 _renderDriversTab();
                 return;
             }
+        });
+
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-drivertype]');
+            if (!btn) return;
+            _ds.typeFilter = btn.dataset.drivertype;
+            _renderDriversTab();
         });
 
         container.addEventListener('input', function (e) {

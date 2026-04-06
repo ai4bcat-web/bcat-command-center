@@ -550,3 +550,120 @@ class RelaySession(db.Model):
     saved_at     = db.Column(db.DateTime, default=datetime.utcnow)
     last_status  = db.Column(db.String(50), default='')   # 'ok', 'captcha', 'login_failed'
     last_error   = db.Column(db.Text,     default='')
+
+
+# ── Amazon DSP — Driver Expense System ────────────────────────────────────────
+
+class ImportBatch(db.Model):
+    """Audit trail for imported DSP data (Discord uploads, CSV, API ingest)."""
+    __tablename__ = 'import_batches'
+
+    id            = db.Column(db.Integer,     primary_key=True)
+    source        = db.Column(db.String(50),  default='manual')   # 'discord'|'manual'|'api'
+    filename      = db.Column(db.String(500), default='')
+    rows_imported = db.Column(db.Integer,     default=0)
+    created_by    = db.Column(db.String(200), default='')
+    notes         = db.Column(db.Text,        default='')
+    created_at    = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    expenses = db.relationship('DriverExpense', backref='import_batch', lazy='dynamic')
+
+    def to_dict(self):
+        return {
+            'id':           self.id,
+            'source':       self.source        or 'manual',
+            'filename':     self.filename      or '',
+            'rowsImported': self.rows_imported or 0,
+            'createdBy':    self.created_by    or '',
+            'notes':        self.notes         or '',
+            'createdAt':    self.created_at.isoformat() if self.created_at else '',
+        }
+
+
+class DspDriver(db.Model):
+    """Amazon DSP driver profile — separate from Ivan Cartage drivers."""
+    __tablename__ = 'dsp_drivers'
+
+    id                 = db.Column(db.Integer,     primary_key=True)
+    name               = db.Column(db.String(200), nullable=False)
+    driver_type        = db.Column(db.String(50),  default='company')   # 'company'|'owner_op'
+    phone              = db.Column(db.String(50),  default='')
+    email              = db.Column(db.String(255), default='')
+    active             = db.Column(db.Boolean,     default=True)
+    notes              = db.Column(db.Text,        default='')
+    default_payout_pct = db.Column(db.Float,       default=0.0)   # owner op payout %
+    fuel_card_holder   = db.Column(db.Boolean,     default=False)
+    created_at         = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    expenses         = db.relationship('DriverExpense',        backref='driver', lazy='dynamic',
+                                       cascade='all, delete-orphan')
+    expense_defaults = db.relationship('DriverExpenseDefault', backref='driver', lazy='dynamic',
+                                       cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id':               self.id,
+            'name':             self.name,
+            'driverType':       self.driver_type        or 'company',
+            'phone':            self.phone              or '',
+            'email':            self.email              or '',
+            'active':           bool(self.active),
+            'notes':            self.notes              or '',
+            'defaultPayoutPct': self.default_payout_pct or 0.0,
+            'fuelCardHolder':   bool(self.fuel_card_holder),
+            'createdAt':        self.created_at.isoformat() if self.created_at else '',
+        }
+
+
+class DriverExpenseDefault(db.Model):
+    """Recurring expense template for a DSP driver — pre-fills expense entry."""
+    __tablename__ = 'driver_expense_defaults'
+
+    id            = db.Column(db.Integer,     primary_key=True)
+    driver_id     = db.Column(db.Integer,     db.ForeignKey('dsp_drivers.id'), nullable=False)
+    category      = db.Column(db.String(50),  default='deduction')
+    label         = db.Column(db.String(200), nullable=False, default='')
+    amount        = db.Column(db.Float,       default=0.0)
+    is_percentage = db.Column(db.Boolean,     default=False)
+    active        = db.Column(db.Boolean,     default=True)
+
+    def to_dict(self):
+        return {
+            'id':           self.id,
+            'driverId':     self.driver_id,
+            'category':     self.category     or 'deduction',
+            'label':        self.label        or '',
+            'amount':       self.amount       or 0.0,
+            'isPercentage': bool(self.is_percentage),
+            'active':       bool(self.active),
+        }
+
+
+class DriverExpense(db.Model):
+    """Per-week expense entry for a DSP driver."""
+    __tablename__ = 'driver_expenses'
+
+    id                 = db.Column(db.Integer,     primary_key=True)
+    driver_id          = db.Column(db.Integer,     db.ForeignKey('dsp_drivers.id'), nullable=False)
+    week_start         = db.Column(db.String(10),  nullable=False, index=True)   # YYYY-MM-DD Sunday
+    category           = db.Column(db.String(50),  default='deduction')
+    label              = db.Column(db.String(200), default='')
+    amount             = db.Column(db.Float,       default=0.0)
+    notes              = db.Column(db.Text,        default='')
+    external_reference = db.Column(db.String(200), default='')   # dedup key for agent ingest
+    import_batch_id    = db.Column(db.Integer,     db.ForeignKey('import_batches.id'), nullable=True)
+    created_at         = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id':                self.id,
+            'driverId':          self.driver_id,
+            'weekStart':         self.week_start,
+            'category':          self.category           or 'deduction',
+            'label':             self.label              or '',
+            'amount':            self.amount             or 0.0,
+            'notes':             self.notes              or '',
+            'externalReference': self.external_reference or '',
+            'importBatchId':     self.import_batch_id,
+            'createdAt':         self.created_at.isoformat() if self.created_at else '',
+        }

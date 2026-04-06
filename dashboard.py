@@ -233,6 +233,27 @@ if config.DATABASE_URL:
 
     _ensure_audit_table()
 
+    def _seed_dsp_drivers():
+        """Seed Chad Salerno and Roy Workman on first run if table is empty."""
+        try:
+            from models import DspDriver
+            with app.app_context():
+                if DspDriver.query.count() == 0:
+                    from extensions import db as _db
+                    _db.session.add(DspDriver(
+                        name='Chad Salerno', driver_type='company',
+                        active=True, default_payout_pct=0.0, fuel_card_holder=True,
+                    ))
+                    _db.session.add(DspDriver(
+                        name='Roy Workman', driver_type='owner_op',
+                        active=True, default_payout_pct=88.0, fuel_card_holder=False,
+                    ))
+                    _db.session.commit()
+        except Exception as _se:
+            _log.warning('DSP driver seed skipped: %s', _se)
+
+    _seed_dsp_drivers()
+
 _DB_ENABLED = bool(config.DATABASE_URL)
 
 finance_agent    = FinanceAgent()
@@ -1839,6 +1860,343 @@ def ivan_import():
             imported['invoices'] += 1
     _db.session.commit()
     return jsonify({'ok': True, 'imported': imported})
+
+
+# ── Amazon DSP — Driver & Expense API ─────────────────────────────────────────
+
+@app.route('/api/dsp/drivers', methods=['GET'])
+@login_required
+def dsp_drivers_list():
+    from models import DspDriver
+    drivers = DspDriver.query.order_by(DspDriver.name).all()
+    return jsonify([d.to_dict() for d in drivers])
+
+
+@app.route('/api/dsp/drivers', methods=['POST'])
+@login_required
+def dsp_driver_create():
+    from models import DspDriver
+    from extensions import db as _db
+    d = request.get_json() or {}
+    drv = DspDriver(
+        name               = d.get('name', ''),
+        driver_type        = d.get('driverType', 'company'),
+        phone              = d.get('phone', ''),
+        email              = d.get('email', ''),
+        active             = bool(d.get('active', True)),
+        notes              = d.get('notes', ''),
+        default_payout_pct = float(d.get('defaultPayoutPct') or 0),
+        fuel_card_holder   = bool(d.get('fuelCardHolder', False)),
+    )
+    _db.session.add(drv)
+    _db.session.commit()
+    return jsonify(drv.to_dict()), 201
+
+
+@app.route('/api/dsp/drivers/<int:did>', methods=['PUT'])
+@login_required
+def dsp_driver_update(did):
+    from models import DspDriver
+    from extensions import db as _db
+    drv = DspDriver.query.get_or_404(did)
+    d = request.get_json() or {}
+    if 'name'             in d: drv.name               = d['name']
+    if 'driverType'       in d: drv.driver_type         = d['driverType']
+    if 'phone'            in d: drv.phone               = d['phone']
+    if 'email'            in d: drv.email               = d['email']
+    if 'active'           in d: drv.active              = bool(d['active'])
+    if 'notes'            in d: drv.notes               = d['notes']
+    if 'defaultPayoutPct' in d: drv.default_payout_pct  = float(d['defaultPayoutPct'] or 0)
+    if 'fuelCardHolder'   in d: drv.fuel_card_holder    = bool(d['fuelCardHolder'])
+    _db.session.commit()
+    return jsonify(drv.to_dict())
+
+
+@app.route('/api/dsp/drivers/<int:did>', methods=['DELETE'])
+@login_required
+def dsp_driver_delete(did):
+    from models import DspDriver
+    from extensions import db as _db
+    drv = DspDriver.query.get_or_404(did)
+    _db.session.delete(drv)
+    _db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/dsp/drivers/<int:did>/expense-defaults', methods=['GET'])
+@login_required
+def dsp_expense_defaults_list(did):
+    from models import DriverExpenseDefault
+    defs = DriverExpenseDefault.query.filter_by(driver_id=did).all()
+    return jsonify([x.to_dict() for x in defs])
+
+
+@app.route('/api/dsp/drivers/<int:did>/expense-defaults', methods=['POST'])
+@login_required
+def dsp_expense_default_create(did):
+    from models import DspDriver, DriverExpenseDefault
+    from extensions import db as _db
+    DspDriver.query.get_or_404(did)
+    d = request.get_json() or {}
+    obj = DriverExpenseDefault(
+        driver_id     = did,
+        category      = d.get('category', 'deduction'),
+        label         = d.get('label', ''),
+        amount        = float(d.get('amount') or 0),
+        is_percentage = bool(d.get('isPercentage', False)),
+        active        = bool(d.get('active', True)),
+    )
+    _db.session.add(obj)
+    _db.session.commit()
+    return jsonify(obj.to_dict()), 201
+
+
+@app.route('/api/dsp/drivers/<int:did>/expense-defaults/<int:eid>', methods=['PUT'])
+@login_required
+def dsp_expense_default_update(did, eid):
+    from models import DriverExpenseDefault
+    from extensions import db as _db
+    obj = DriverExpenseDefault.query.filter_by(id=eid, driver_id=did).first_or_404()
+    d = request.get_json() or {}
+    if 'category'     in d: obj.category      = d['category']
+    if 'label'        in d: obj.label         = d['label']
+    if 'amount'       in d: obj.amount        = float(d['amount'] or 0)
+    if 'isPercentage' in d: obj.is_percentage = bool(d['isPercentage'])
+    if 'active'       in d: obj.active        = bool(d['active'])
+    _db.session.commit()
+    return jsonify(obj.to_dict())
+
+
+@app.route('/api/dsp/drivers/<int:did>/expense-defaults/<int:eid>', methods=['DELETE'])
+@login_required
+def dsp_expense_default_delete(did, eid):
+    from models import DriverExpenseDefault
+    from extensions import db as _db
+    obj = DriverExpenseDefault.query.filter_by(id=eid, driver_id=did).first_or_404()
+    _db.session.delete(obj)
+    _db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/dsp/expenses', methods=['GET'])
+@login_required
+def dsp_expenses_list():
+    from models import DriverExpense
+    q = DriverExpense.query
+    driver_id  = request.args.get('driverId')
+    week_start = request.args.get('weekStart')
+    if driver_id:  q = q.filter_by(driver_id=int(driver_id))
+    if week_start: q = q.filter_by(week_start=week_start)
+    rows = q.order_by(DriverExpense.week_start.desc(), DriverExpense.driver_id).all()
+    return jsonify([r.to_dict() for r in rows])
+
+
+@app.route('/api/dsp/expenses', methods=['POST'])
+@login_required
+def dsp_expense_create():
+    from models import DriverExpense
+    from extensions import db as _db
+    d = request.get_json() or {}
+    ext_ref   = (d.get('externalReference') or '').strip()
+    driver_id = int(d.get('driverId') or 0)
+    week_start = d.get('weekStart', '')
+    # Idempotent: skip if same external_reference already exists
+    if ext_ref and DriverExpense.query.filter_by(
+        driver_id=driver_id, week_start=week_start, external_reference=ext_ref
+    ).first():
+        existing = DriverExpense.query.filter_by(
+            driver_id=driver_id, week_start=week_start, external_reference=ext_ref
+        ).first()
+        return jsonify(existing.to_dict())
+    obj = DriverExpense(
+        driver_id          = driver_id,
+        week_start         = week_start,
+        category           = d.get('category', 'deduction'),
+        label              = d.get('label', ''),
+        amount             = float(d.get('amount') or 0),
+        notes              = d.get('notes', ''),
+        external_reference = ext_ref,
+        import_batch_id    = d.get('importBatchId'),
+    )
+    _db.session.add(obj)
+    _db.session.commit()
+    return jsonify(obj.to_dict()), 201
+
+
+@app.route('/api/dsp/expenses/<int:eid>', methods=['PUT'])
+@login_required
+def dsp_expense_update(eid):
+    from models import DriverExpense
+    from extensions import db as _db
+    obj = DriverExpense.query.get_or_404(eid)
+    d = request.get_json() or {}
+    if 'category'  in d: obj.category  = d['category']
+    if 'label'     in d: obj.label     = d['label']
+    if 'amount'    in d: obj.amount    = float(d['amount'] or 0)
+    if 'notes'     in d: obj.notes     = d['notes']
+    if 'weekStart' in d: obj.week_start = d['weekStart']
+    _db.session.commit()
+    return jsonify(obj.to_dict())
+
+
+@app.route('/api/dsp/expenses/<int:eid>', methods=['DELETE'])
+@login_required
+def dsp_expense_delete(eid):
+    from models import DriverExpense
+    from extensions import db as _db
+    obj = DriverExpense.query.get_or_404(eid)
+    _db.session.delete(obj)
+    _db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/dsp/summary', methods=['GET'])
+@login_required
+def dsp_summary():
+    """Weekly aggregated view: AmazonTrip revenue + DriverExpense totals per driver."""
+    from models import DspDriver, DriverExpense, AmazonTrip
+    week_start = request.args.get('weekStart', '')
+
+    drivers  = DspDriver.query.filter_by(active=True).order_by(DspDriver.name).all()
+
+    trips_q = AmazonTrip.query
+    if week_start:
+        from datetime import date as _date, timedelta as _td
+        try:
+            sun = _date.fromisoformat(week_start)
+            sat = sun + _td(days=6)
+            trips_q = trips_q.filter(
+                AmazonTrip.trip_date >= sun.isoformat(),
+                AmazonTrip.trip_date <= sat.isoformat(),
+            )
+        except Exception:
+            pass
+    trips = trips_q.all()
+
+    expenses_q = DriverExpense.query
+    if week_start:
+        expenses_q = expenses_q.filter_by(week_start=week_start)
+    expenses = expenses_q.all()
+
+    result = []
+    for drv in drivers:
+        drv_trips    = [t for t in trips    if t.driver    == drv.name]
+        drv_expenses = [e for e in expenses if e.driver_id == drv.id]
+        gross        = sum(t.gross_load_revenue or 0 for t in drv_trips)
+        trip_revenue = sum(t.trip_revenue      or 0 for t in drv_trips)
+        total_exp    = sum(e.amount            or 0 for e in drv_expenses)
+        net_payout   = trip_revenue - total_exp
+        result.append({
+            'driver':      drv.to_dict(),
+            'tripCount':   len(drv_trips),
+            'gross':       round(gross,        2),
+            'tripRevenue': round(trip_revenue, 2),
+            'expenses':    round(total_exp,    2),
+            'netPayout':   round(net_payout,   2),
+        })
+
+    # Unmatched trips (driver name not in dsp_drivers)
+    known_names = {d['driver']['name'] for d in result}
+    unmatched = {}
+    for t in trips:
+        if t.driver and t.driver not in known_names:
+            if t.driver not in unmatched:
+                unmatched[t.driver] = {'trips': 0, 'gross': 0.0, 'tripRevenue': 0.0}
+            unmatched[t.driver]['trips']       += 1
+            unmatched[t.driver]['gross']       += t.gross_load_revenue or 0
+            unmatched[t.driver]['tripRevenue'] += t.trip_revenue       or 0
+
+    return jsonify({
+        'weekStart':       week_start,
+        'drivers':         result,
+        'unmatched':       unmatched,
+        'totalGross':      round(sum(r['gross']       for r in result), 2),
+        'totalExpenses':   round(sum(r['expenses']    for r in result), 2),
+        'totalNetPayout':  round(sum(r['netPayout']   for r in result), 2),
+    })
+
+
+@app.route('/api/dsp/ingest/trips', methods=['POST'])
+@csrf.exempt
+@login_required
+def dsp_ingest_trips():
+    """Agent-facing endpoint: push AmazonTrip records with import batch tracking.
+    Body: { trips: [...], source: 'discord', filename: '', createdBy: '' }
+    Future: replace @login_required with API-key auth for Discord agents.
+    """
+    from models import ImportBatch
+    from extensions import db as _db
+    from models import upsert_amazon_trips
+    d = request.get_json() or {}
+    trips = d.get('trips', [])
+    if not trips:
+        return jsonify({'ok': True, 'imported': 0})
+    batch = ImportBatch(
+        source        = d.get('source', 'api'),
+        filename      = d.get('filename', ''),
+        created_by    = d.get('createdBy', ''),
+        notes         = d.get('notes', ''),
+        rows_imported = len(trips),
+    )
+    _db.session.add(batch)
+    _db.session.flush()
+    count = upsert_amazon_trips(trips)
+    _db.session.commit()
+    return jsonify({'ok': True, 'imported': count, 'batchId': batch.id})
+
+
+@app.route('/api/dsp/ingest/fuel', methods=['POST'])
+@csrf.exempt
+@login_required
+def dsp_ingest_fuel():
+    """Agent-facing endpoint: push DriverExpense fuel records with dedup.
+    Body: { expenses: [{driverId, weekStart, amount, label, externalReference}], ... }
+    """
+    from models import DriverExpense, ImportBatch
+    from extensions import db as _db
+    d = request.get_json() or {}
+    raw = d.get('expenses', [])
+    if not raw:
+        return jsonify({'ok': True, 'imported': 0})
+    batch = ImportBatch(
+        source        = d.get('source', 'api'),
+        filename      = d.get('filename', ''),
+        created_by    = d.get('createdBy', ''),
+        notes         = d.get('notes', ''),
+        rows_imported = len(raw),
+    )
+    _db.session.add(batch)
+    _db.session.flush()
+    count = 0
+    for e in raw:
+        ext_ref    = (e.get('externalReference') or '').strip()
+        driver_id  = int(e.get('driverId') or 0)
+        week_start = e.get('weekStart', '')
+        if ext_ref and DriverExpense.query.filter_by(
+            driver_id=driver_id, week_start=week_start, external_reference=ext_ref
+        ).first():
+            continue
+        _db.session.add(DriverExpense(
+            driver_id=driver_id, week_start=week_start,
+            category=e.get('category', 'fuel'),
+            label=e.get('label', 'Fuel'),
+            amount=float(e.get('amount') or 0),
+            notes=e.get('notes', ''),
+            external_reference=ext_ref,
+            import_batch_id=batch.id,
+        ))
+        count += 1
+    _db.session.commit()
+    return jsonify({'ok': True, 'imported': count, 'batchId': batch.id})
+
+
+@app.route('/api/dsp/import-batches', methods=['GET'])
+@login_required
+def dsp_import_batches():
+    from models import ImportBatch
+    limit = min(int(request.args.get('limit', 20)), 100)
+    batches = ImportBatch.query.order_by(ImportBatch.created_at.desc()).limit(limit).all()
+    return jsonify([b.to_dict() for b in batches])
 
 
 # ── Dev server entry point ────────────────────────────────────────────────────

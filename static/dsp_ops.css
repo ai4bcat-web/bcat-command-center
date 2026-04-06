@@ -1,0 +1,527 @@
+/*
+ * static/dsp_ops.css
+ * Amazon DSP Operations — per-driver expense tracking UI
+ * Extends dashboard.css; uses same dark-theme palette.
+ */
+
+/* ── Root container ──────────────────────────────────────────────────────── */
+.dsp-root {
+    padding: 1.25rem 1.5rem;
+    min-height: 400px;
+}
+
+/* ── Top bar: week nav + Add Driver ──────────────────────────────────────── */
+.dsp-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-bottom: 1rem;
+}
+
+.dsp-week-nav {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+.dsp-nav-btn {
+    background: #1b2235;
+    border: 1px solid #243047;
+    color: #e5e7eb;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s, border-color .15s;
+}
+.dsp-nav-btn:hover { background: #25304a; border-color: #0ea5e9; }
+
+.dsp-week-label {
+    font-size: 15px;
+    font-weight: 700;
+    color: #f3f4f6;
+    white-space: nowrap;
+}
+
+/* ── Driver filter tabs ───────────────────────────────────────────────────── */
+.dsp-driver-tabs {
+    margin-bottom: .75rem;
+}
+
+/* ── Summary bar ─────────────────────────────────────────────────────────── */
+.dsp-summary-bar {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    background: #1a2235;
+    border: 1px solid #243047;
+    border-radius: 12px;
+    padding: .875rem 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.dsp-sum-item {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+    min-width: 120px;
+}
+
+.dsp-sum-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.dsp-sum-val {
+    font-size: 20px;
+    font-weight: 700;
+}
+
+/* ── Color utilities ──────────────────────────────────────────────────────── */
+.dsp-blue   { color: #38bdf8; }
+.dsp-green  { color: #4ade80; }
+.dsp-red    { color: #f87171; }
+.dsp-muted  { color: #6b7280; }
+
+/* ── Driver card grid ────────────────────────────────────────────────────── */
+.dsp-driver-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.dsp-driver-card {
+    background: #1a2235;
+    border: 1px solid #243047;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
+}
+
+/* ── Card header ─────────────────────────────────────────────────────────── */
+.dsp-card-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.dsp-drv-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #f3f4f6;
+}
+
+.dsp-card-btns {
+    display: flex;
+    gap: .35rem;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.dsp-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+.dsp-badge-co  { background: #1e3a5f; color: #38bdf8; }
+.dsp-badge-oo  { background: #3b1f6e; color: #c084fc; }
+
+/* ── Revenue row ─────────────────────────────────────────────────────────── */
+.dsp-rev-row {
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+}
+
+.dsp-rev-item {
+    background: #111827;
+    border: 1px solid #1f2d43;
+    border-radius: 8px;
+    padding: .5rem .75rem;
+    flex: 1;
+    min-width: 100px;
+}
+
+.dsp-rev-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: 2px;
+}
+
+.dsp-rev-val {
+    font-size: 16px;
+    font-weight: 700;
+    color: #f3f4f6;
+}
+
+/* ── Expense section ─────────────────────────────────────────────────────── */
+.dsp-exp-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.dsp-exp-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}
+
+.dsp-sm-btn {
+    background: #1b2235;
+    border: 1px solid #243047;
+    color: #0ea5e9;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: background .15s, border-color .15s;
+}
+.dsp-sm-btn:hover { background: #1d3050; border-color: #0ea5e9; }
+
+/* ── Expense table ───────────────────────────────────────────────────────── */
+.dsp-exp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.dsp-exp-table td {
+    padding: 5px 4px;
+    border-bottom: 1px solid #1f2d43;
+    color: #e5e7eb;
+    vertical-align: middle;
+}
+.dsp-exp-table tr:last-child td { border-bottom: none; }
+
+.dsp-ecat   { width: 80px; }
+.dsp-elabel { color: #d1d5db; }
+.dsp-eamt   { text-align: right; font-weight: 600; white-space: nowrap; padding-right: 6px; }
+.dsp-eact   { text-align: right; white-space: nowrap; }
+
+/* ── Category badges ─────────────────────────────────────────────────────── */
+.dsp-cat-badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.dsp-cat-fuel      { background: #1e3a5f; color: #38bdf8; }
+.dsp-cat-rental    { background: #3b1f6e; color: #c084fc; }
+.dsp-cat-deduction { background: #3b2a0a; color: #fbbf24; }
+.dsp-cat-other     { background: #1f2937; color: #9ca3af; }
+
+/* ── Icon buttons ────────────────────────────────────────────────────────── */
+.dsp-icon-btn {
+    background: none;
+    border: 1px solid transparent;
+    color: #6b7280;
+    padding: 3px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: color .15s, background .15s, border-color .15s;
+}
+.dsp-icon-btn:hover { color: #0ea5e9; background: #1b2235; border-color: #243047; }
+.dsp-icon-btn.dsp-del:hover { color: #ef4444; background: #2a1515; border-color: #3f1515; }
+
+/* ── No expenses placeholder ─────────────────────────────────────────────── */
+.dsp-no-exp {
+    font-size: 12px;
+    color: #4b5563;
+    padding: 6px 0;
+    text-align: center;
+    font-style: italic;
+}
+
+/* ── Net payout row ──────────────────────────────────────────────────────── */
+.dsp-net-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid #243047;
+    padding-top: .6rem;
+    margin-top: auto;
+}
+
+.dsp-net-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.dsp-net-val {
+    font-size: 18px;
+    font-weight: 800;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.dsp-empty {
+    text-align: center;
+    color: #4b5563;
+    padding: 3rem 1rem;
+    font-size: 14px;
+}
+
+/* ── Import log ──────────────────────────────────────────────────────────── */
+.dsp-import-log {
+    background: #1a2235;
+    border: 1px solid #243047;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: .5rem;
+}
+
+.dsp-log-hdr {
+    padding: .75rem 1.25rem;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: #6b7280;
+    user-select: none;
+    transition: background .15s, color .15s;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.dsp-log-hdr:hover { background: #1f2d43; color: #9ca3af; }
+
+.dsp-log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.dsp-log-table th {
+    padding: 6px 12px;
+    text-align: left;
+    color: #6b7280;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-weight: 600;
+    border-bottom: 1px solid #243047;
+    background: #111827;
+}
+.dsp-log-table td {
+    padding: 8px 12px;
+    color: #d1d5db;
+    border-bottom: 1px solid #1f2d43;
+}
+.dsp-log-table tr:last-child td { border-bottom: none; }
+
+.dsp-src-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.dsp-src-discord { background: #2d2151; color: #a78bfa; }
+.dsp-src-manual  { background: #1f2937; color: #9ca3af; }
+.dsp-src-api     { background: #0f3040; color: #22d3ee; }
+
+/* ── Modal overlay ───────────────────────────────────────────────────────── */
+.dsp-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.65);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.dsp-modal-box {
+    background: #1a2235;
+    border: 1px solid #2d3f5c;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+
+.dsp-modal-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem .75rem;
+    border-bottom: 1px solid #243047;
+}
+
+.dsp-modal-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #f3f4f6;
+}
+
+.dsp-modal-close {
+    background: none;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: color .15s, background .15s;
+}
+.dsp-modal-close:hover { color: #f3f4f6; background: #243047; }
+
+/* ── Modal form ──────────────────────────────────────────────────────────── */
+.dsp-form-row {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    padding: .625rem 1.25rem 0;
+}
+
+.dsp-form-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.dsp-form-val {
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.dsp-input,
+.dsp-select,
+.dsp-textarea {
+    background: #111827;
+    border: 1px solid #243047;
+    border-radius: 8px;
+    color: #f3f4f6;
+    font-size: 13px;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color .15s;
+    width: 100%;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+.dsp-input:focus,
+.dsp-select:focus,
+.dsp-textarea:focus  { border-color: #0ea5e9; }
+.dsp-input::placeholder,
+.dsp-textarea::placeholder { color: #374151; }
+.dsp-textarea { resize: vertical; min-height: 60px; }
+
+.dsp-check-row {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-size: 13px;
+    color: #d1d5db;
+    cursor: pointer;
+}
+.dsp-check-row input[type="checkbox"] { cursor: pointer; }
+
+/* ── Modal footer ────────────────────────────────────────────────────────── */
+.dsp-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: .5rem;
+    padding: .875rem 1.25rem 1rem;
+    margin-top: .5rem;
+    border-top: 1px solid #243047;
+    flex-wrap: wrap;
+}
+
+.dsp-btn-ghost {
+    background: transparent;
+    border: 1px solid #243047;
+    color: #9ca3af;
+    padding: 7px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background .15s, color .15s;
+}
+.dsp-btn-ghost:hover { background: #243047; color: #f3f4f6; }
+
+.dsp-btn-del {
+    background: transparent;
+    border: 1px solid #3f1515;
+    color: #ef4444;
+    padding: 7px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background .15s;
+    margin-right: auto;
+}
+.dsp-btn-del:hover { background: #2a1515; }
+
+/* ── Defaults quick-fill row ─────────────────────────────────────────────── */
+.dsp-defaults-row {
+    padding: .5rem 1.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem;
+}
+
+.dsp-def-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    white-space: nowrap;
+}
+
+.dsp-def-btn {
+    background: #111827;
+    border: 1px solid #243047;
+    color: #9ca3af;
+    padding: 3px 9px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    transition: background .15s, color .15s, border-color .15s;
+}
+.dsp-def-btn:hover { background: #1d3050; border-color: #0ea5e9; color: #38bdf8; }
+
+/* ── Defaults list ───────────────────────────────────────────────────────── */
+.dsp-defaults-list {
+    padding: .75rem 1.25rem 0;
+}
+
+.dsp-def-inactive td { opacity: .45; }

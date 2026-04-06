@@ -43,12 +43,13 @@ var IvanOpsApp = (function () {
         sortCol:     'unitNumber',    // active sort column key
         sortDir:     'asc',          // 'asc' | 'desc'
         spendPeriod: 'year',          // 'year' | 'alltime'
+        maintPage:  0,                // upcoming maintenance current page (0-indexed)
+        equipPage:  0,                // equipment list current page (0-indexed)
         histPage:   0,                // maintenance history current page (0-indexed)
         histSortCol: 'invoiceDate',   // sort column for maintenance history
         histSortDir: 'desc',          // 'asc' | 'desc'
         histFilterEquip:    '',       // equipment id filter ('' = all)
-        histFilterPaid:     '',       // '' | 'paid' | 'unpaid'
-        histFilterAssignee: ''        // assignee filter ('' = all)
+        histFilterPaid:     ''        // '' | 'paid' | 'unpaid'
     };
     var _ds = {                       // drivers tab state
         search: ''
@@ -529,6 +530,7 @@ var IvanOpsApp = (function () {
 
     // ── Upcoming maintenance section ──────────────────────────────────────
     function _htmlUpcomingMaintenance(tasks) {
+        var MAINT_PAGE_SIZE = 10;
         var today = _today();
         var filterBtns = ['all', 'upcoming', 'overdue', 'high'].map(function (f) {
             var label = f === 'high' ? 'High Priority' : f.charAt(0).toUpperCase() + f.slice(1);
@@ -543,7 +545,12 @@ var IvanOpsApp = (function () {
             return true;
         });
 
-        var rows = visible.map(function (m) {
+        var total      = visible.length;
+        var totalPages = Math.max(1, Math.ceil(total / MAINT_PAGE_SIZE));
+        var page       = Math.min(_es.maintPage, totalPages - 1);
+        var pageItems  = visible.slice(page * MAINT_PAGE_SIZE, page * MAINT_PAGE_SIZE + MAINT_PAGE_SIZE);
+
+        var rows = pageItems.map(function (m) {
             var eq     = _findEquip(m.equipmentId);
             var label  = eq ? (eq.unitNumber + (eq.nickname ? ' · ' + eq.nickname : '')) : m.equipmentId;
             var days   = _daysUntil(m.dueDate);
@@ -555,14 +562,26 @@ var IvanOpsApp = (function () {
                 + '<td>' + _priorityBadge(m.priority) + '</td>'
                 + '<td>' + _statusBadge(m.status) + '</td>'
                 + '<td><span class="' + dCls + '">' + dLabel + '</span><br><small style="color:' + C.muted + '">' + _fmtDate(m.dueDate) + '</small></td>'
-                + '<td>' + _esc(m.vendor || '—') + '</td>'
-                + '<td>' + (m.estimatedCost != null ? _money(m.estimatedCost) : '—') + '</td>'
+                + '<td>' + (m.assignee ? _esc(m.assignee) : '<span style="color:' + C.muted + '">—</span>') + '</td>'
                 + '<td style="white-space:nowrap">'
                 + '<button class="ivan-btn ivan-btn-sm" data-action="mark-complete" data-mtid="' + m.maintenanceTaskId + '" title="Mark complete">✓ Done</button>&nbsp;'
                 + '<button class="ivan-btn ivan-btn-sm ivan-btn-danger" data-action="delete-maint" data-mtid="' + m.maintenanceTaskId + '" title="Delete task">Delete</button>'
                 + '</td>'
                 + '</tr>';
         }).join('');
+
+        var start = total === 0 ? 0 : page * MAINT_PAGE_SIZE + 1;
+        var end   = Math.min(page * MAINT_PAGE_SIZE + MAINT_PAGE_SIZE, total);
+        var pagination = '<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem 0 0;flex-wrap:wrap;gap:.5rem">'
+            + '<span style="font-size:12px;color:' + C.muted + '">'
+            + (total === 0 ? 'No tasks match the current filter' : 'Showing ' + start + '–' + end + ' of ' + total) + '</span>'
+            + '<div style="display:flex;gap:.4rem;align-items:center">'
+            + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="maint-page" data-maintpage="' + (page - 1) + '"'
+            + (page === 0 ? ' disabled style="opacity:.35;cursor:default"' : '') + '>← Prev</button>'
+            + '<span style="font-size:12px;color:' + C.muted + ';padding:0 .25rem">Page ' + (page + 1) + ' of ' + totalPages + '</span>'
+            + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="maint-page" data-maintpage="' + (page + 1) + '"'
+            + (page >= totalPages - 1 ? ' disabled style="opacity:.35;cursor:default"' : '') + '>Next →</button>'
+            + '</div></div>';
 
         return '<div class="chart-card" style="margin-bottom:1.5rem">'
             + '<div class="ivan-section-hdr">'
@@ -573,10 +592,12 @@ var IvanOpsApp = (function () {
             + '</div>'
             + '</div>'
             + '<div class="table-wrap"><table class="ivan-table"><thead><tr>'
-            + '<th>Equipment</th><th>Task</th><th>Priority</th><th>Status</th><th>Due</th><th>Vendor</th><th>Est. Cost</th><th></th>'
+            + '<th>Equipment</th><th>Task</th><th>Priority</th><th>Status</th><th>Due</th><th>Assignee</th><th></th>'
             + '</tr></thead><tbody>'
-            + (rows || '<tr><td colspan="8" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No open tasks match the current filter.</td></tr>')
-            + '</tbody></table></div></div>';
+            + (rows || '<tr><td colspan="7" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No open tasks match the current filter.</td></tr>')
+            + '</tbody></table></div>'
+            + pagination
+            + '</div>';
     }
 
     // ── Maintenance history section (invoices only) ───────────────────────
@@ -590,13 +611,6 @@ var IvanOpsApp = (function () {
                     + _esc(e.unitNumber) + (e.nickname ? ' · ' + _esc(e.nickname) : '') + '</option>';
             }).join('');
 
-        var allAssignees = [];
-        _invoices.forEach(function(inv){ if (inv.assignee && allAssignees.indexOf(inv.assignee) < 0) allAssignees.push(inv.assignee); });
-        var assigneeOpts = '<option value="">All Assignees</option>'
-            + allAssignees.sort().map(function(a){
-                return '<option value="' + _esc(a) + '"' + (_es.histFilterAssignee === a ? ' selected' : '') + '>' + _esc(a) + '</option>';
-            }).join('');
-
         var filterBar = '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.75rem">'
             + '<select class="ivan-input" style="width:auto;min-width:160px;padding:5px 8px;font-size:12px" data-action="hist-filter-equip">' + equipOpts + '</select>'
             + '<select class="ivan-input" style="width:auto;min-width:130px;padding:5px 8px;font-size:12px" data-action="hist-filter-paid">'
@@ -604,7 +618,6 @@ var IvanOpsApp = (function () {
             + '<option value="paid"' + (_es.histFilterPaid === 'paid' ? ' selected' : '') + '>Paid</option>'
             + '<option value="unpaid"' + (_es.histFilterPaid === 'unpaid' ? ' selected' : '') + '>Unpaid</option>'
             + '</select>'
-            + '<select class="ivan-input" style="width:auto;min-width:150px;padding:5px 8px;font-size:12px" data-action="hist-filter-assignee">' + assigneeOpts + '</select>'
             + '</div>';
 
         // Filter
@@ -612,7 +625,6 @@ var IvanOpsApp = (function () {
             if (_es.histFilterEquip && inv.equipmentId !== _es.histFilterEquip) return false;
             if (_es.histFilterPaid === 'paid'   && !inv.paymentMethod) return false;
             if (_es.histFilterPaid === 'unpaid' &&  inv.paymentMethod) return false;
-            if (_es.histFilterAssignee && inv.assignee !== _es.histFilterAssignee) return false;
             return true;
         });
 
@@ -658,7 +670,6 @@ var IvanOpsApp = (function () {
                 + '<td>' + _esc(inv.vendor || '—') + '</td>'
                 + '<td>' + _money(inv.totalAmount) + '</td>'
                 + '<td style="white-space:nowrap">' + payCell + '</td>'
-                + '<td>' + (inv.assignee ? '<span style="color:#f3f4f6">' + _esc(inv.assignee) + '</span>' : '<span style="color:' + C.muted + '">—</span>') + '</td>'
                 + '<td><button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="open-hist-edit"'
                   + ' data-paytype="invoice" data-payid="' + inv.invoiceId + '">Edit</button></td>'
                 + '</tr>';
@@ -691,10 +702,9 @@ var IvanOpsApp = (function () {
             + _histSortTh('Vendor',     'vendor')
             + _histSortTh('Amount',     'amount')
             + _histSortTh('Payment',    'paid')
-            + _histSortTh('Assignee',   'assignee')
             + '<th></th>'
             + '</tr></thead><tbody>'
-            + (rows || '<tr><td colspan="9" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No invoices match the current filters.</td></tr>')
+            + (rows || '<tr><td colspan="8" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No invoices match the current filters.</td></tr>')
             + '</tbody></table></div>'
             + pagination
             + '</div>';
@@ -702,16 +712,21 @@ var IvanOpsApp = (function () {
 
     // ── Equipment list ────────────────────────────────────────────────────
     function _htmlEquipmentList(equip) {
+        var EQUIP_PAGE_SIZE = 15;
         var typeBtns = ['all', 'truck', 'trailer'].map(function (f) {
             var label = f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1) + 's';
             return '<button class="ivan-fbtn' + (_es.filter === f ? ' active' : '') + '" data-efilter="' + f + '">' + label + '</button>';
         }).join('');
 
-        var showTruck   = _es.filter === 'truck'   || _es.filter === 'all';
-        var showTrailer = _es.filter === 'trailer'  || _es.filter === 'all';
         var isTruckOnly = _es.filter === 'truck';
 
-        var rows = equip.map(function (e) {
+        // Pagination
+        var total      = equip.length;
+        var totalPages = Math.max(1, Math.ceil(total / EQUIP_PAGE_SIZE));
+        var page       = Math.min(_es.equipPage, totalPages - 1);
+        var pageItems  = equip.slice(page * EQUIP_PAGE_SIZE, page * EQUIP_PAGE_SIZE + EQUIP_PAGE_SIZE);
+
+        var rows = pageItems.map(function (e) {
             var spend   = getRepairSpendByEquipment(e.id);
             var openAll = _maintenance.filter(function (m) { return m.equipmentId === e.id && m.status !== 'completed'; });
             var open    = openAll.length;
@@ -768,7 +783,20 @@ var IvanOpsApp = (function () {
                 + '</tr>';
         }).join('');
 
-        var colCount = 9 + (isTruckOnly || _es.filter === 'all' ? 3 : 0) + 1; // base + truck cols + actions
+        var colCount = 9 + (isTruckOnly || _es.filter === 'all' ? 3 : 0) + 1;
+
+        var eStart = total === 0 ? 0 : page * EQUIP_PAGE_SIZE + 1;
+        var eEnd   = Math.min(page * EQUIP_PAGE_SIZE + EQUIP_PAGE_SIZE, total);
+        var equipPagination = '<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem 0 0;flex-wrap:wrap;gap:.5rem">'
+            + '<span style="font-size:12px;color:' + C.muted + '">'
+            + (total === 0 ? 'No equipment found' : 'Showing ' + eStart + '–' + eEnd + ' of ' + total) + '</span>'
+            + '<div style="display:flex;gap:.4rem;align-items:center">'
+            + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="equip-page" data-equippage="' + (page - 1) + '"'
+            + (page === 0 ? ' disabled style="opacity:.35;cursor:default"' : '') + '>← Prev</button>'
+            + '<span style="font-size:12px;color:' + C.muted + ';padding:0 .25rem">Page ' + (page + 1) + ' of ' + totalPages + '</span>'
+            + '<button class="ivan-btn ivan-btn-sm ivan-btn-ghost" data-action="equip-page" data-equippage="' + (page + 1) + '"'
+            + (page >= totalPages - 1 ? ' disabled style="opacity:.35;cursor:default"' : '') + '>Next →</button>'
+            + '</div></div>';
 
         return '<div class="chart-card" style="margin-bottom:1.5rem">'
             + '<div class="ivan-section-hdr">'
@@ -798,7 +826,9 @@ var IvanOpsApp = (function () {
             + '<th></th>'
             + '</tr></thead><tbody>'
             + (rows || '<tr><td colspan="' + colCount + '" style="color:' + C.muted + ';text-align:center;padding:1.5rem">No equipment found.</td></tr>')
-            + '</tbody></table></div></div>';
+            + '</tbody></table></div>'
+            + equipPagination
+            + '</div>';
     }
 
     // ── Equipment detail panel ────────────────────────────────────────────
@@ -1062,7 +1092,6 @@ var IvanOpsApp = (function () {
                 + '</select>')
             + _fgroup('Payment Date', '<input name="hist_paymentDate" type="date" class="ivan-input">')
             + '</div>'
-            + _fgroup('Assignee', '<input name="hist_assignee" class="ivan-input" placeholder="Optional">')
             + '</div>'
             + '<div class="ivan-modal-ftr" style="justify-content:space-between">'
             + '<button class="ivan-btn ivan-btn-danger" data-action="delete-hist-record">Delete</button>'
@@ -1109,7 +1138,6 @@ var IvanOpsApp = (function () {
                 + '</select>')
             + _fgroup('Payment Date', '<input name="paymentDate" type="date" class="ivan-input">')
             + '</div>'
-            + _fgroup('Assignee', '<input name="assignee" class="ivan-input" placeholder="Who handled this invoice? (optional)">')
             + '</div>'
             + '<div class="ivan-modal-ftr">'
             + '<button class="ivan-btn ivan-btn-ghost" data-action="close-inv-modal">Cancel</button>'
@@ -1379,7 +1407,6 @@ var IvanOpsApp = (function () {
                 document.querySelector('#ivan-hist-modal [name="hist_description"]').value   = inv.description   || '';
                 document.querySelector('#ivan-hist-modal [name="hist_paymentMethod"]').value = inv.paymentMethod || '';
                 document.querySelector('#ivan-hist-modal [name="hist_paymentDate"]').value   = inv.paymentDate   || '';
-                document.querySelector('#ivan-hist-modal [name="hist_assignee"]').value      = inv.assignee      || '';
                 _openModal('ivan-hist-modal');
                 return;
             }
@@ -1392,8 +1419,7 @@ var IvanOpsApp = (function () {
                     amount:        parseFloat(document.querySelector('#ivan-hist-modal [name="hist_totalAmount"]').value) || 0,
                     description:   document.querySelector('#ivan-hist-modal [name="hist_description"]').value,
                     paymentMethod: document.querySelector('#ivan-hist-modal [name="hist_paymentMethod"]').value || '',
-                    paymentDate:   document.querySelector('#ivan-hist-modal [name="hist_paymentDate"]').value   || '',
-                    assignee:      document.querySelector('#ivan-hist-modal [name="hist_assignee"]').value      || ''
+                    paymentDate:   document.querySelector('#ivan-hist-modal [name="hist_paymentDate"]').value   || ''
                 };
                 _api('PUT', '/api/ivan/invoices/' + pid, payload).then(function() {
                     _closeModal('ivan-hist-modal');
@@ -1426,8 +1452,7 @@ var IvanOpsApp = (function () {
                     amount:        parseFloat(data.totalAmount) || 0,
                     description:   data.description || '',
                     paymentMethod: data.paymentMethod || '',
-                    paymentDate:   data.paymentDate   || '',
-                    assignee:      data.assignee || ''
+                    paymentDate:   data.paymentDate   || ''
                 };
                 _api('POST', '/api/ivan/invoices', invPayload).then(function() {
                     _es.histPage = 0;
@@ -1444,6 +1469,22 @@ var IvanOpsApp = (function () {
             if (!btn) return;
             _es.spendPeriod = btn.dataset.spendperiod;
             _renderEquipmentTab();
+        });
+
+        // Upcoming maintenance pagination
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-maintpage]');
+            if (!btn || btn.disabled) return;
+            var p = parseInt(btn.dataset.maintpage, 10);
+            if (!isNaN(p) && p >= 0) { _es.maintPage = p; _renderEquipmentTab(); }
+        });
+
+        // Equipment list pagination
+        container.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-equippage]');
+            if (!btn || btn.disabled) return;
+            var p = parseInt(btn.dataset.equippage, 10);
+            if (!isNaN(p) && p >= 0) { _es.equipPage = p; _renderEquipmentTab(); }
         });
 
         // Maintenance history pagination
@@ -1465,6 +1506,7 @@ var IvanOpsApp = (function () {
                 _es.sortCol = col;
                 _es.sortDir = 'asc';
             }
+            _es.equipPage = 0;
             _renderEquipmentTab();
         });
 
@@ -1473,6 +1515,7 @@ var IvanOpsApp = (function () {
             var btn = e.target.closest('[data-efilter]');
             if (!btn) return;
             _es.filter = btn.dataset.efilter;
+            _es.equipPage = 0;
             _renderEquipmentTab();
         });
 
@@ -1481,6 +1524,7 @@ var IvanOpsApp = (function () {
             var btn = e.target.closest('[data-mfilter]');
             if (!btn) return;
             _es.mFilter = btn.dataset.mfilter;
+            _es.maintPage = 0;
             _renderEquipmentTab();
         });
 
@@ -1488,6 +1532,7 @@ var IvanOpsApp = (function () {
         container.addEventListener('input', function (e) {
             if (e.target.dataset.action === 'search-equip') {
                 _es.search = e.target.value;
+                _es.equipPage = 0;
                 _renderEquipmentTab();
             }
         });
@@ -1531,9 +1576,6 @@ var IvanOpsApp = (function () {
             }
             if (e.target.dataset.action === 'hist-filter-paid') {
                 _es.histFilterPaid = e.target.value; _es.histPage = 0; _renderEquipmentTab();
-            }
-            if (e.target.dataset.action === 'hist-filter-assignee') {
-                _es.histFilterAssignee = e.target.value; _es.histPage = 0; _renderEquipmentTab();
             }
         });
 

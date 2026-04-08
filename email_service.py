@@ -2,11 +2,13 @@
 import os.path
 import base64
 
-from email.mime.text import MIMEText
+from email.mime.text        import MIMEText
+from email.mime.multipart   import MIMEMultipart
+from email.mime.application import MIMEApplication
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from google.oauth2.credentials      import Credentials
+from google_auth_oauthlib.flow      import InstalledAppFlow
+from googleapiclient.discovery      import build
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
@@ -50,3 +52,41 @@ class EmailService:
         )
 
         return sent_message
+
+    def send_email_with_attachment(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        attachment_path: str,
+        attachment_name: str | None = None,
+    ):
+        """Send an email with a single file attachment (e.g. a PDF report).
+
+        Args:
+            to:              Recipient email address.
+            subject:         Email subject line.
+            body:            Plain-text email body.
+            attachment_path: Absolute or relative path to the file to attach.
+            attachment_name: Filename shown to the recipient. Defaults to the
+                             basename of attachment_path.
+        """
+        msg = MIMEMultipart()
+        msg["to"]      = to
+        msg["subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        name = attachment_name or os.path.basename(attachment_path)
+        with open(attachment_path, "rb") as f:
+            part = MIMEApplication(f.read(), Name=name)
+        part["Content-Disposition"] = f'attachment; filename="{name}"'
+        msg.attach(part)
+
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        sent = (
+            self.service.users()
+            .messages()
+            .send(userId="me", body={"raw": raw})
+            .execute()
+        )
+        return sent

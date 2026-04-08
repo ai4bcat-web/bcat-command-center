@@ -254,6 +254,19 @@ if config.DATABASE_URL:
 
     _seed_dsp_drivers()
 
+    def _ensure_report_tables():
+        """Create report_job_runs / driver_report_runs tables if they don't exist yet."""
+        try:
+            from sqlalchemy import inspect as _si
+            with app.app_context():
+                if not _si(db.engine).has_table('report_job_runs'):
+                    db.create_all()
+                    _log.info('Report tables created (report_job_runs, driver_report_runs).')
+        except Exception as _re:
+            _log.warning('Report table init skipped: %s', _re)
+
+    _ensure_report_tables()
+
 _DB_ENABLED = bool(config.DATABASE_URL)
 
 finance_agent    = FinanceAgent()
@@ -2197,6 +2210,73 @@ def dsp_import_batches():
     limit = min(int(request.args.get('limit', 20)), 100)
     batches = ImportBatch.query.order_by(ImportBatch.created_at.desc()).limit(limit).all()
     return jsonify([b.to_dict() for b in batches])
+
+
+# ── Trip Report API ───────────────────────────────────────────────────────────
+
+@app.route('/api/report/trigger', methods=['POST'])
+@login_required
+def trigger_report_job():
+    """Manually trigger the daily trip report job (for testing / on-demand sends).
+
+    Body (JSON, all optional):
+        dry_run      bool   — generate PDFs but skip email + Discord (default false)
+        report_date  str    — override the report date YYYY-MM-DD (default today)
+        window_days  int    — days of history to include (default REPORT_WINDOW_DAYS env / 7)
+
+    Returns:
+        202 with {jobRunId, reportDate, windowStart, windowEnd, dryRun}
+        503 if DATABASE_URL is not set
+    """
+    if not _DB_ENABLED:
+        return jsonify({'error': 'DATABASE_URL is required to run report jobs.'}), 503
+
+    import threading
+    from datetime import date, timedelta
+
+    data        = request.get_json(silent=True) or {}
+    dry_run     = bool(data.get('dry_run', False))
+    report_date = data.get('report_date') or date.today().isoformat()
+    window_days = int(data.get('window_days', int(os.getenv('REPORT_WINDOW_DAYS', 7))))
+    window_end   = (date.today() - timedelta(days=1)).isoformat()
+    window_start = (date.today() - timedelta(days=window_days)).isoformat()
+
+    def _run():
+        try:
+            from automation.trip_report.job import DailyTripHistoryReportJob
+            job = DailyTripHistoryReportJob(app=app)
+            job.run(report_date=report_date, dry_run=dry_run)
+        except Exception as exc:
+            _log.error("Manual report trigger failed: %s", exc, exc_info=True)
+
+    t = threading.Thread(target=_run, daemon=True, name='report-job-manual')
+    t.start()
+
+    return jsonify({
+        'status':      'triggered',
+        'reportDate':  report_date,
+        'windowStart': window_start,
+        'windowEnd':   window_end,
+        'dryRun':      dry_run,
+        'windowDays':  window_days,
+    }), 202
+
+
+@app.route('/api/report/runs', methods=['GET'])
+@login_required
+def list_report_runs():
+    """Return recent report job runs with per-driver status."""
+    if not _DB_ENABLED:
+        return jsonify([])
+    from models import ReportJobRun
+    limit = min(int(request.args.get('limit', 10)), 50)
+    runs  = ReportJobRun.query.order_by(ReportJobRun.started_at.desc()).limit(limit).all()
+    result = []
+    for run in runs:
+        d = run.to_dict()
+        d['driverReports'] = [dr.to_dict() for dr in run.driver_reports]
+        result.append(d)
+    return jsonify(result)
 
 
 # ── Dev server entry point ────────────────────────────────────────────────────

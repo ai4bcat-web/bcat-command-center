@@ -667,3 +667,96 @@ class DriverExpense(db.Model):
             'importBatchId':     self.import_batch_id,
             'createdAt':         self.created_at.isoformat() if self.created_at else '',
         }
+
+
+# ── Trip Report Automation ─────────────────────────────────────────────────────
+
+class ReportJobRun(db.Model):
+    """Audit record for each daily trip-report job execution."""
+    __tablename__ = 'report_job_runs'
+
+    id            = db.Column(db.Integer,    primary_key=True)
+    job_type      = db.Column(db.String(50), default='daily_trip_report')
+    report_date   = db.Column(db.String(10), nullable=False, index=True)   # YYYY-MM-DD (calendar date the job ran)
+    window_start  = db.Column(db.String(10), default='')                   # YYYY-MM-DD first day of reporting window
+    window_end    = db.Column(db.String(10), default='')                   # YYYY-MM-DD last day of reporting window
+    status        = db.Column(db.String(20), default='running')            # running | completed | failed
+    started_at    = db.Column(db.DateTime,   default=datetime.utcnow)
+    completed_at  = db.Column(db.DateTime,   nullable=True)
+    error         = db.Column(db.Text,       default='')
+    summary       = db.Column(db.Text,       default='')
+    total_trips   = db.Column(db.Integer,    default=0)
+    total_revenue = db.Column(db.Float,      default=0.0)
+    driver_count  = db.Column(db.Integer,    default=0)
+    dry_run       = db.Column(db.Boolean,    default=False)
+
+    driver_reports = db.relationship(
+        'DriverReportRun', backref='job_run',
+        lazy='dynamic', cascade='all, delete-orphan',
+    )
+
+    def to_dict(self):
+        return {
+            'id':           self.id,
+            'jobType':      self.job_type,
+            'reportDate':   self.report_date,
+            'windowStart':  self.window_start,
+            'windowEnd':    self.window_end,
+            'status':       self.status,
+            'startedAt':    self.started_at.isoformat()   if self.started_at   else '',
+            'completedAt':  self.completed_at.isoformat() if self.completed_at else '',
+            'error':        self.error        or '',
+            'summary':      self.summary      or '',
+            'totalTrips':   self.total_trips,
+            'totalRevenue': self.total_revenue,
+            'driverCount':  self.driver_count,
+            'dryRun':       self.dry_run,
+        }
+
+
+class DriverReportRun(db.Model):
+    """Per-driver report status within a job run — tracks PDF, email, Discord."""
+    __tablename__ = 'driver_report_runs'
+
+    id              = db.Column(db.Integer,    primary_key=True)
+    job_run_id      = db.Column(db.Integer,    db.ForeignKey('report_job_runs.id'), nullable=False)
+    driver_name     = db.Column(db.String(200), nullable=False)
+    driver_type     = db.Column(db.String(50),  default='company')   # company | owner_op
+    report_date     = db.Column(db.String(10),  nullable=False, index=True)  # YYYY-MM-DD
+    window_start    = db.Column(db.String(10),  default='')
+    window_end      = db.Column(db.String(10),  default='')
+    trip_count      = db.Column(db.Integer,     default=0)
+    total_revenue   = db.Column(db.Float,       default=0.0)
+    pdf_path        = db.Column(db.String(500), default='')
+    email_status    = db.Column(db.String(20),  default='pending')   # pending | sent | failed | skipped
+    email_error     = db.Column(db.Text,        default='')
+    email_sent_at   = db.Column(db.DateTime,    nullable=True)
+    discord_status  = db.Column(db.String(20),  default='pending')   # pending | sent | failed | skipped
+    discord_error   = db.Column(db.Text,        default='')
+    discord_sent_at = db.Column(db.DateTime,    nullable=True)
+    created_at      = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('job_run_id', 'driver_name', name='uq_driver_report_per_run'),
+    )
+
+    def to_dict(self):
+        return {
+            'id':             self.id,
+            'jobRunId':       self.job_run_id,
+            'driverName':     self.driver_name,
+            'driverType':     self.driver_type,
+            'reportDate':     self.report_date,
+            'windowStart':    self.window_start,
+            'windowEnd':      self.window_end,
+            'tripCount':      self.trip_count,
+            'totalRevenue':   self.total_revenue,
+            'pdfPath':        self.pdf_path       or '',
+            'emailStatus':    self.email_status,
+            'emailError':     self.email_error    or '',
+            'emailSentAt':    self.email_sent_at.isoformat()   if self.email_sent_at   else '',
+            'discordStatus':  self.discord_status,
+            'discordError':   self.discord_error  or '',
+            'discordSentAt':  self.discord_sent_at.isoformat() if self.discord_sent_at else '',
+            'createdAt':      self.created_at.isoformat()      if self.created_at      else '',
+        }

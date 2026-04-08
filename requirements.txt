@@ -44,3 +44,6 @@ requests==2.32.3
 
 # Browser automation (Amazon Relay nightly cron fetch)
 playwright>=1.40.0
+
+# PDF report generation (daily trip reports)
+reportlab>=4.0.0

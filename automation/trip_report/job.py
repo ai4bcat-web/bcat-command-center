@@ -1,43 +1,68 @@
 """
 automation/trip_report/job.py
 ──────────────────────────────
-DailyTripHistoryReportJob
+WeeklyTripHistoryReportJob
 
-Orchestrates the full daily Amazon trip-report workflow:
+Orchestrates the weekly Amazon trip-report workflow:
 
-  1. Compute reporting window (last N days, configurable)
+  1. Compute the Amazon reporting window (most recently completed Sunday–Saturday)
   2. Load trip data from AmazonTrip DB table (fallback: CSV)
   3. Build per-driver reports via TripReportBuilder
   4. For each driver report:
-       a. Check idempotency — skip if already successfully sent today
+       a. Check idempotency — skip if already successfully sent for this week
        b. Generate PDF
        c. Send email with PDF attached
        d. Post Discord notification
        e. Update DriverReportRun status in DB
   5. Finalize ReportJobRun record (completed or failed)
 
+Reporting window
+────────────────
+Amazon's weekly reporting window is Sunday through Saturday.
+
+When the job runs on Sunday at 8 AM it reports on the week that just ended:
+  - window_start = the Sunday that began the previous week
+  - window_end   = the Saturday that ended the previous week
+
+Example: job runs Sunday Apr 12 → reports on Apr 5 (Sun) – Apr 11 (Sat).
+
+If run manually on any other day of the week it still resolves to the most
+recently COMPLETED Saturday and the Sunday 6 days before it.
+
 Idempotency
 ───────────
-A DriverReportRun row is created for each (job_run_id, driver_name) pair.
-If the job is re-run for the same date (e.g. manual retry), existing
-DriverReportRun rows with email_status='sent' are skipped unless
-REPORT_FORCE_RESEND=true is set.
+Before creating a new DriverReportRun the job queries for any existing
+DriverReportRun with the same window_start AND driver_name AND
+email_status='sent'.  If found, that driver is skipped for the current run
+unless REPORT_FORCE_RESEND=true.
+
+This means re-running the job on the same Sunday — or triggering it manually
+for the same week — will not double-send reports.
 
 Configuration (env vars)
 ────────────────────────
-  REPORT_WINDOW_DAYS       — how many days back to include (default: 7)
-  REPORT_RECIPIENT_EMAIL   — destination email address (required for real sends)
-  REPORT_OUTPUT_DIR        — directory for generated PDFs (default: /tmp/trip_reports)
-  REPORT_DRY_RUN           — "true" to skip actual email/Discord sends (default: false)
-  REPORT_FORCE_RESEND      — "true" to ignore already-sent status (default: false)
-  REPORT_DRIVER_NAMES      — comma-separated driver allow-list (default: from DspDriver table)
+  REPORT_RECIPIENT_EMAIL     — destination address (required for real sends)
+  REPORT_OUTPUT_DIR          — directory for generated PDFs (default: /tmp/trip_reports)
+  REPORT_DRY_RUN             — "true" to skip actual email/Discord sends
+  REPORT_FORCE_RESEND        — "true" to ignore already-sent status
+  REPORT_DRIVER_NAMES        — comma-separated driver allow-list (default: DspDriver table)
+  REPORT_WEEK_ENDING         — override the window: set to a Saturday YYYY-MM-DD
+                               (computes window_start automatically as Sun 6 days prior)
   REPORT_DISCORD_WEBHOOK_URL / DISCORD_WEBHOOK_URL — Discord webhook
 
-Manual trigger
-──────────────
-  DATABASE_URL=<url> python report_cron.py
-  DATABASE_URL=<url> REPORT_DRY_RUN=true python report_cron.py
-  DATABASE_URL=<url> REPORT_WINDOW_DAYS=30 python report_cron.py
+Manual trigger examples
+───────────────────────
+  # Run for the auto-resolved current week:
+  DATABASE_URL=<url> REPORT_RECIPIENT_EMAIL=you@example.com python report_cron.py
+
+  # Dry run (generates PDFs, no email, no Discord):
+  DATABASE_URL=<url> REPORT_RECIPIENT_EMAIL=x REPORT_DRY_RUN=true python report_cron.py
+
+  # Report on a specific completed week (supply the Saturday end date):
+  DATABASE_URL=<url> REPORT_WEEK_ENDING=2026-04-11 python report_cron.py
+
+  # Force resend even if already sent this week:
+  DATABASE_URL=<url> REPORT_FORCE_RESEND=true python report_cron.py
 """
 
 from __future__ import annotations
@@ -50,21 +75,80 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
+# ── Window calculation ────────────────────────────────────────────────────────
+
 def _bool_env(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default)).strip().lower() in ('true', '1', 'yes')
 
 
-def _window_dates() -> tuple[str, str]:
-    """Return (window_start, window_end) as YYYY-MM-DD strings."""
-    days   = int(os.getenv('REPORT_WINDOW_DAYS', '7'))
-    today  = date.today()
-    end    = today - timedelta(days=1)           # yesterday
-    start  = today - timedelta(days=days)
-    return start.isoformat(), end.isoformat()
+def _amazon_weekly_window(run_date: str | None = None) -> tuple[str, str]:
+    """Return (window_start, window_end) for the most recently completed Sun–Sat week.
+
+    Uses isoweekday(): Mon=1 … Sat=6, Sun=7.
+
+    Logic:
+      days_since_saturday = (isoweekday - 6) % 7
+      If today IS Saturday (days_since_sat == 0) we step back a full week so the
+      in-progress current week is never included.
+
+    Examples (scheduled run on Sunday Apr 12):
+      isoweekday=7, days_since_sat=1
+      window_end   = Apr 12 - 1 = Apr 11 (Sat)  ✓
+      window_start = Apr 11 - 6 = Apr 5  (Sun)  ✓
+
+    Manual run on Wednesday Apr 15:
+      isoweekday=3, days_since_sat=4
+      window_end   = Apr 15 - 4 = Apr 11 (Sat)  ✓
+      window_start = Apr 11 - 6 = Apr 5  (Sun)  ✓
+    """
+    env_ending = os.getenv('REPORT_WEEK_ENDING', '').strip()
+    if env_ending:
+        try:
+            window_end   = date.fromisoformat(env_ending)
+            window_start = window_end - timedelta(days=6)
+            return window_start.isoformat(), window_end.isoformat()
+        except ValueError:
+            log.warning("REPORT_WEEK_ENDING='%s' is not a valid YYYY-MM-DD date — ignoring.", env_ending)
+
+    today = date.fromisoformat(run_date) if run_date else date.today()
+    dow   = today.isoweekday()           # Mon=1 … Sat=6, Sun=7
+    days_since_sat = (dow - 6) % 7      # 0 if today is Sat, 1 if Sun, 2 if Mon …
+    if days_since_sat == 0:
+        # Today is Saturday — the current week has not ended yet; report previous week
+        days_since_sat = 7
+    window_end   = today - timedelta(days=days_since_sat)
+    window_start = window_end - timedelta(days=6)
+    return window_start.isoformat(), window_end.isoformat()
 
 
-class DailyTripHistoryReportJob:
-    """Full daily trip-report workflow — runs once and exits."""
+def _window_from_params(
+    week_ending: str | None = None,
+    week_start:  str | None = None,
+    week_end:    str | None = None,
+) -> tuple[str, str]:
+    """Resolve a manual window override from explicit date params.
+
+    Priority:
+      1. week_start + week_end pair (used as-is)
+      2. week_ending alone (Saturday date → compute Sunday 6 days prior)
+      3. Auto-resolve from today via _amazon_weekly_window()
+    """
+    if week_start and week_end:
+        return week_start, week_end
+    if week_ending:
+        try:
+            end   = date.fromisoformat(week_ending)
+            start = end - timedelta(days=6)
+            return start.isoformat(), end.isoformat()
+        except ValueError:
+            log.warning("week_ending='%s' is not a valid YYYY-MM-DD — auto-resolving.", week_ending)
+    return _amazon_weekly_window()
+
+
+# ── Job ───────────────────────────────────────────────────────────────────────
+
+class WeeklyTripHistoryReportJob:
+    """Weekly Amazon trip-report workflow — runs once and exits."""
 
     def __init__(self, app=None):
         """
@@ -76,12 +160,20 @@ class DailyTripHistoryReportJob:
 
     # ── Public entry point ────────────────────────────────────────────────────
 
-    def run(self, report_date: str | None = None, dry_run: bool | None = None) -> bool:
-        """Execute the full workflow.
+    def run(
+        self,
+        dry_run:     bool | None = None,
+        week_ending: str  | None = None,   # Saturday YYYY-MM-DD
+        week_start:  str  | None = None,   # Sunday YYYY-MM-DD  (overrides week_ending)
+        week_end:    str  | None = None,   # Saturday YYYY-MM-DD (overrides week_ending)
+    ) -> bool:
+        """Execute the full weekly workflow.
 
         Args:
-            report_date: Override the report date (YYYY-MM-DD).  Defaults to today.
             dry_run:     Override REPORT_DRY_RUN env var.
+            week_ending: Report on the week ending this Saturday.
+            week_start:  Explicit Sunday start date (use with week_end).
+            week_end:    Explicit Saturday end date (use with week_start).
 
         Returns:
             True if all driver reports succeeded, False if any failed.
@@ -91,22 +183,23 @@ class DailyTripHistoryReportJob:
         from automation.trip_report.email_sender     import ReportEmailSender
         from automation.trip_report.discord_notifier import DiscordReportNotifier
 
-        effective_dry_run  = dry_run if dry_run is not None else _bool_env('REPORT_DRY_RUN')
-        effective_date     = report_date or date.today().isoformat()
-        window_start, window_end = _window_dates()
-        force_resend       = _bool_env('REPORT_FORCE_RESEND')
+        effective_dry_run = dry_run if dry_run is not None else _bool_env('REPORT_DRY_RUN')
+        force_resend      = _bool_env('REPORT_FORCE_RESEND')
+        report_date       = date.today().isoformat()
+
+        window_start, window_end = _window_from_params(week_ending, week_start, week_end)
 
         log.info("=" * 60)
-        log.info("Daily Trip Report job  — %s UTC", datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
-        log.info("Report date  : %s", effective_date)
-        log.info("Window       : %s – %s", window_start, window_end)
+        log.info("Weekly Trip Report job — %s UTC", datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
+        log.info("Report date  : %s", report_date)
+        log.info("Window       : %s (Sun) – %s (Sat)", window_start, window_end)
         log.info("Dry run      : %s", effective_dry_run)
         log.info("Force resend : %s", force_resend)
         log.info("=" * 60)
 
         # ── 1. Create job-run audit record ────────────────────────────────────
-        job_run = self._create_job_run(
-            report_date  = effective_date,
+        job_run_id = self._create_job_run(
+            report_date  = report_date,
             window_start = window_start,
             window_end   = window_end,
             dry_run      = effective_dry_run,
@@ -119,32 +212,31 @@ class DailyTripHistoryReportJob:
         except Exception as exc:
             err = f"Failed to load trip data: {exc}"
             log.error(err, exc_info=True)
-            self._fail_job(job_run, err)
-            DiscordReportNotifier().notify_failure('ALL', 'data_load', err, dry_run=effective_dry_run)
+            self._fail_job(job_run_id, err)
+            DiscordReportNotifier().notify_failure(
+                'ALL', 'data_load', err, dry_run=effective_dry_run
+            )
             return False
 
         # ── 3. Build per-driver reports ───────────────────────────────────────
         builder = TripReportBuilder(app=self._app)
         driver_reports = builder.build(
             raw_trips    = raw_trips,
-            report_date  = effective_date,
+            report_date  = report_date,
             window_start = window_start,
             window_end   = window_end,
         )
 
         if not driver_reports:
-            msg = f"No driver reports to send for window {window_start} – {window_end}."
+            msg = (
+                f"No driver reports to send for week "
+                f"{window_start} (Sun) – {window_end} (Sat)."
+            )
             log.warning(msg)
-            self._complete_job(job_run, 0, 0.0, 0, summary=msg)
+            self._complete_job(job_run_id, 0, 0.0, 0, summary=msg)
             return True
 
-        # ── 4. Process each driver ────────────────────────────────────────────
-        pdf_gen    = PDFReportGenerator()
-        notifier   = DiscordReportNotifier()
-        failed     = 0
-        sent_count = 0
-
-        # Initialise email sender once (validates env var early)
+        # ── 4. Initialise email sender (validates env var early) ──────────────
         try:
             sender = ReportEmailSender() if not effective_dry_run else None
         except RuntimeError as exc:
@@ -154,31 +246,39 @@ class DailyTripHistoryReportJob:
             else:
                 err = str(exc)
                 log.error(err)
-                self._fail_job(job_run, err)
+                self._fail_job(job_run_id, err)
                 return False
 
-        for report in driver_reports:
-            drv_run = self._create_driver_run(job_run, report)
+        # ── 5. Process each driver ────────────────────────────────────────────
+        pdf_gen    = PDFReportGenerator()
+        notifier   = DiscordReportNotifier()
+        failed     = 0
+        sent_count = 0
 
-            # ── idempotency check ──────────────────────────────────────────
-            if not force_resend and drv_run and getattr(drv_run, 'email_status', '') == 'sent':
+        for report in driver_reports:
+            # ── idempotency: check if this driver's week was already sent ──
+            if not force_resend and self._already_sent(window_start, report.driver_name):
                 log.info(
-                    "Skipping %s — already sent (use REPORT_FORCE_RESEND=true to override).",
-                    report.driver_name,
+                    "Skipping %s — week %s already sent. Use REPORT_FORCE_RESEND=true to override.",
+                    report.driver_name, window_start,
                 )
                 continue
 
-            log.info("Processing driver: %s (%d trips, $%.2f)",
-                     report.driver_name, report.trip_count, report.total_revenue)
+            drv_run_id = self._create_driver_run(job_run_id, report)
+
+            log.info(
+                "Processing driver: %s (%d trips, $%.2f)",
+                report.driver_name, report.trip_count, report.total_revenue,
+            )
 
             # ── a. Generate PDF ────────────────────────────────────────────
             try:
                 pdf_path = pdf_gen.generate(report)
-                self._update_driver_run(drv_run, pdf_path=pdf_path)
+                self._update_driver_run(drv_run_id, pdf_path=pdf_path)
             except Exception as exc:
                 err = f"PDF generation failed: {exc}"
                 log.error(err, exc_info=True)
-                self._update_driver_run(drv_run, email_status='failed', email_error=err)
+                self._update_driver_run(drv_run_id, email_status='failed', email_error=err)
                 notifier.notify_failure(report.driver_name, 'pdf', err, dry_run=effective_dry_run)
                 failed += 1
                 continue
@@ -189,13 +289,15 @@ class DailyTripHistoryReportJob:
                     sender.send(report, pdf_path)
                 else:
                     log.info("[DRY RUN] Would send email for %s", report.driver_name)
-                self._update_driver_run(drv_run,
-                                        email_status='sent' if not effective_dry_run else 'skipped',
-                                        email_sent_at=datetime.utcnow())
+                self._update_driver_run(
+                    drv_run_id,
+                    email_status  = 'sent' if not effective_dry_run else 'skipped',
+                    email_sent_at = datetime.utcnow(),
+                )
             except Exception as exc:
                 err = f"Email send failed: {exc}"
                 log.error(err, exc_info=True)
-                self._update_driver_run(drv_run, email_status='failed', email_error=err)
+                self._update_driver_run(drv_run_id, email_status='failed', email_error=err)
                 notifier.notify_failure(report.driver_name, 'email', err, dry_run=effective_dry_run)
                 failed += 1
                 continue
@@ -203,29 +305,32 @@ class DailyTripHistoryReportJob:
             # ── c. Discord notification ────────────────────────────────────
             try:
                 notifier.notify_success(report, dry_run=effective_dry_run)
-                self._update_driver_run(drv_run,
-                                        discord_status='sent' if not effective_dry_run else 'skipped',
-                                        discord_sent_at=datetime.utcnow())
+                self._update_driver_run(
+                    drv_run_id,
+                    discord_status  = 'sent' if not effective_dry_run else 'skipped',
+                    discord_sent_at = datetime.utcnow(),
+                )
             except Exception as exc:
-                # Discord failure is non-fatal — email already sent
                 warn = f"Discord notify failed: {exc}"
                 log.warning(warn)
-                self._update_driver_run(drv_run, discord_status='failed', discord_error=warn)
+                self._update_driver_run(drv_run_id, discord_status='failed', discord_error=warn)
 
             sent_count += 1
 
-        # ── 5. Finalize job run ───────────────────────────────────────────────
+        # ── 6. Finalize ───────────────────────────────────────────────────────
         total_trips   = sum(r.trip_count    for r in driver_reports)
         total_revenue = sum(r.total_revenue for r in driver_reports)
         summary = (
             f"Sent {sent_count}/{len(driver_reports)} driver reports. "
+            f"Week: {window_start} – {window_end}. "
             f"Total trips: {total_trips}. Total revenue: ${total_revenue:,.2f}."
             + (f" {failed} failed." if failed else '')
         )
-        self._complete_job(job_run, total_trips, total_revenue, len(driver_reports), summary=summary)
+        self._complete_job(job_run_id, total_trips, total_revenue, len(driver_reports), summary=summary)
 
         notifier.notify_job_complete(
-            report_date   = effective_date,
+            window_start  = window_start,
+            window_end    = window_end,
             driver_count  = len(driver_reports),
             total_trips   = total_trips,
             total_revenue = total_revenue,
@@ -242,13 +347,11 @@ class DailyTripHistoryReportJob:
     # ── Trip data loading ─────────────────────────────────────────────────────
 
     def _load_trips(self, window_start: str, window_end: str) -> list:
-        """Load AmazonTrip records from DB (preferred) or CSV (fallback)."""
         if self._app:
             try:
                 return self._load_from_db(window_start, window_end)
             except Exception as exc:
                 log.warning("DB load failed (%s) — falling back to CSV.", exc)
-
         return self._load_from_csv(window_start, window_end)
 
     def _load_from_db(self, window_start: str, window_end: str) -> list:
@@ -261,7 +364,6 @@ class DailyTripHistoryReportJob:
                 .all()
             )
             log.info("DB query returned %d rows.", len(rows))
-            # Detach from session by converting to dicts before leaving context
             return [r.to_dict() for r in rows]
 
     def _load_from_csv(self, window_start: str, window_end: str) -> list:
@@ -282,6 +384,24 @@ class DailyTripHistoryReportJob:
         log.info("CSV returned %d trips (%d in window).", len(all_trips), len(filtered))
         return filtered
 
+    # ── Idempotency ───────────────────────────────────────────────────────────
+
+    def _already_sent(self, window_start: str, driver_name: str) -> bool:
+        """Return True if this driver's report for this week was already emailed."""
+        if not self._app:
+            return False
+        try:
+            from models import DriverReportRun
+            with self._app.app_context():
+                return DriverReportRun.query.filter_by(
+                    window_start = window_start,
+                    driver_name  = driver_name,
+                    email_status = 'sent',
+                ).first() is not None
+        except Exception as exc:
+            log.warning("Idempotency check failed: %s", exc)
+            return False
+
     # ── DB record helpers ─────────────────────────────────────────────────────
 
     def _create_job_run(self, report_date, window_start, window_end, dry_run):
@@ -292,7 +412,7 @@ class DailyTripHistoryReportJob:
             from extensions import db
             with self._app.app_context():
                 jr = ReportJobRun(
-                    job_type     = 'daily_trip_report',
+                    job_type     = 'weekly_trip_report',
                     report_date  = report_date,
                     window_start = window_start,
                     window_end   = window_end,
@@ -302,7 +422,7 @@ class DailyTripHistoryReportJob:
                 db.session.add(jr)
                 db.session.commit()
                 log.info("ReportJobRun created: id=%d", jr.id)
-                return jr.id   # return ID, not ORM obj (avoids detached-instance issues)
+                return jr.id
         except Exception as exc:
             log.warning("Could not create ReportJobRun: %s", exc)
             return None
@@ -311,8 +431,9 @@ class DailyTripHistoryReportJob:
         self._finalize_job(job_run_id, 'failed', 0, 0.0, 0, error=error)
 
     def _complete_job(self, job_run_id, total_trips, total_revenue, driver_count, summary=''):
-        self._finalize_job(job_run_id, 'completed', total_trips, total_revenue,
-                           driver_count, summary=summary)
+        self._finalize_job(
+            job_run_id, 'completed', total_trips, total_revenue, driver_count, summary=summary
+        )
 
     def _finalize_job(self, job_run_id, status, total_trips, total_revenue,
                       driver_count, error='', summary=''):
@@ -336,7 +457,6 @@ class DailyTripHistoryReportJob:
             log.warning("Could not finalize ReportJobRun: %s", exc)
 
     def _create_driver_run(self, job_run_id, report):
-        """Create or retrieve existing DriverReportRun for idempotency check."""
         if not self._app or job_run_id is None:
             return None
         try:
@@ -350,14 +470,14 @@ class DailyTripHistoryReportJob:
                 if existing:
                     return existing.id
                 drv = DriverReportRun(
-                    job_run_id   = job_run_id,
-                    driver_name  = report.driver_name,
-                    driver_type  = report.driver_type,
-                    report_date  = report.report_date,
-                    window_start = report.window_start,
-                    window_end   = report.window_end,
-                    trip_count   = report.trip_count,
-                    total_revenue= report.total_revenue,
+                    job_run_id    = job_run_id,
+                    driver_name   = report.driver_name,
+                    driver_type   = report.driver_type,
+                    report_date   = report.report_date,
+                    window_start  = report.window_start,
+                    window_end    = report.window_end,
+                    trip_count    = report.trip_count,
+                    total_revenue = report.total_revenue,
                 )
                 db.session.add(drv)
                 db.session.commit()
@@ -380,3 +500,7 @@ class DailyTripHistoryReportJob:
                     db.session.commit()
         except Exception as exc:
             log.warning("Could not update DriverReportRun: %s", exc)
+
+
+# ── Backwards-compatible alias ────────────────────────────────────────────────
+DailyTripHistoryReportJob = WeeklyTripHistoryReportJob

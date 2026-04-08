@@ -9,17 +9,53 @@ EmailService (Gmail API + OAuth2).
 Configuration (env vars)
 ────────────────────────
   REPORT_RECIPIENT_EMAIL  — destination address (required)
-  GMAIL_TOKEN_PATH        — path to token.json  (default: token.json)
-  GMAIL_CREDS_PATH        — path to credentials.json (default: credentials.json)
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+import re
+from datetime import datetime, date as date_type
 
 log = logging.getLogger(__name__)
+
+
+def _fmt_week(window_start: str, window_end: str) -> str:
+    """Return a human-readable weekly range string.
+
+    Example: "Apr 5 – Apr 11, 2026"
+    """
+    try:
+        s = datetime.strptime(window_start, '%Y-%m-%d')
+        e = datetime.strptime(window_end,   '%Y-%m-%d')
+        # Only print the year once (on the end date)
+        if s.year == e.year:
+            return f"{s.strftime('%b %-d')} – {e.strftime('%b %-d, %Y')}"
+        return f"{s.strftime('%b %-d, %Y')} – {e.strftime('%b %-d, %Y')}"
+    except ValueError:
+        return f"{window_start} – {window_end}"
+
+
+def _fmt_week_long(window_start: str, window_end: str) -> str:
+    """Return a verbose weekly range string for the email body.
+
+    Example: "Sunday, April 5, 2026 – Saturday, April 11, 2026"
+    """
+    try:
+        s = datetime.strptime(window_start, '%Y-%m-%d')
+        e = datetime.strptime(window_end,   '%Y-%m-%d')
+        return (
+            f"{s.strftime('%A, %B %-d, %Y')}"
+            f" – "
+            f"{e.strftime('%A, %B %-d, %Y')}"
+        )
+    except ValueError:
+        return f"{window_start} – {window_end}"
+
+
+def _slug(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '_', text.lower()).strip('_')
 
 
 class ReportEmailSender:
@@ -48,11 +84,13 @@ class ReportEmailSender:
             Exception: Any error from the Gmail API is re-raised so the caller
                        can record the failure in DriverReportRun.
         """
-        subject = (
-            f"Amazon Trip Report – {report.driver_name} – {report.report_date}"
+        week_label = _fmt_week(report.window_start, report.window_end)
+        subject = f"Amazon Trip Report – {report.driver_name} – Week of {week_label}"
+        body    = self._build_body(report)
+        attachment_name = (
+            f"trip_report_{_slug(report.driver_name)}"
+            f"_{report.window_start}_to_{report.window_end}.pdf"
         )
-        body = self._build_body(report)
-        attachment_name = f"trip_report_{report.driver_name.replace(' ', '_')}_{report.report_date}.pdf"
 
         if dry_run:
             log.info(
@@ -70,23 +108,21 @@ class ReportEmailSender:
             attachment_name = attachment_name,
         )
         log.info(
-            "Email sent → %s | driver: %s | trips: %d | revenue: $%.2f",
-            self._recipient, report.driver_name,
+            "Email sent → %s | driver: %s | week: %s | trips: %d | revenue: $%.2f",
+            self._recipient, report.driver_name, week_label,
             report.trip_count, report.total_revenue,
         )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _build_body(self, report) -> str:
-        window = ''
-        if report.window_start and report.window_end:
-            window = f"{report.window_start} to {report.window_end}"
-        else:
-            window = report.report_date
+        week_short = _fmt_week(report.window_start, report.window_end)
+        week_long  = _fmt_week_long(report.window_start, report.window_end)
 
         lines = [
-            f"Driver Trip Report — {report.driver_name}",
-            f"Reporting window: {window}",
+            f"Amazon Weekly Trip Report — {report.driver_name}",
+            f"Week of {week_short}",
+            f"({week_long})",
             '',
             f"  Total trips  : {report.trip_count}",
             f"  Total revenue: ${report.total_revenue:,.2f}",
@@ -94,7 +130,7 @@ class ReportEmailSender:
             'The full trip detail is attached as a PDF.',
             '',
             '—',
-            'BCAT Command Center  |  Automated Finance Report',
+            'BCAT Command Center  |  Automated Weekly Finance Report',
             f'Generated {datetime.utcnow():%Y-%m-%d %H:%M} UTC',
         ]
         return '\n'.join(lines)

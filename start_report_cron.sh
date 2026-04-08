@@ -1,15 +1,17 @@
 #!/bin/bash
-# start_report_cron.sh — Railway cron startup wrapper for the daily trip report.
+# start_report_cron.sh — Railway cron startup wrapper for the weekly trip report.
 #
-# This script does NOT install Playwright because report_cron.py reads data
-# from the PostgreSQL database (populated by relay_cron at 4 AM) rather than
-# from the browser.  It's kept separate so that in future it could still be
-# adapted if direct Amazon access is needed.
+# Reporting window: most recently completed Sunday–Saturday Amazon week.
+# The job runs on Sunday morning; it reports on the week that just ended (Sat).
 #
 # Railway cron service settings:
 #   Start command : bash start_report_cron.sh
-#   Schedule      : 0 14 * * *  (8 AM CST / 9 AM CDT)
+#   Schedule      : 0 14 * * 0   (14:00 UTC = 8:00 AM CST / 9:00 AM CDT, Sundays only)
+#
+# To test a specific week without waiting for Sunday:
+#   Set env var REPORT_WEEK_ENDING=YYYY-MM-DD (the Saturday end date)
+#   and trigger a manual Railway deployment of this cron service.
 set -e
 
-echo "Daily trip report cron starting..."
+echo "Weekly trip report cron starting..."
 exec python report_cron.py

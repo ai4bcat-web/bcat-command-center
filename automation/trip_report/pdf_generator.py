@@ -101,7 +101,7 @@ class PDFReportGenerator:
         )
         header_data = [[
             Paragraph('<b>BCAT Command Center</b>', title_style),
-            Paragraph('Amazon Trip Report', header_style),
+            Paragraph('Amazon Weekly Trip Report', header_style),
         ]]
         header_table = Table(header_data, colWidths=[4 * inch, 2.5 * inch])
         header_table.setStyle(TableStyle([
@@ -133,20 +133,25 @@ class PDFReportGenerator:
         )
         dtype_badge = '● Company Driver' if report.driver_type == 'company' else '● Owner Operator'
 
-        window_str = ''
+        # Build "Sun Apr 5 – Sat Apr 11, 2026" style week label
+        week_label = ''
+        report_date_label = report.report_date
         if report.window_start and report.window_end:
-            def _fmt(d):
-                try:
-                    return datetime.strptime(d, '%Y-%m-%d').strftime('%b %d, %Y')
-                except ValueError:
-                    return d
-            window_str = f"{_fmt(report.window_start)} – {_fmt(report.window_end)}"
+            try:
+                s = datetime.strptime(report.window_start, '%Y-%m-%d')
+                e = datetime.strptime(report.window_end,   '%Y-%m-%d')
+                week_label = (
+                    f"{s.strftime('%a %b %-d')} – {e.strftime('%a %b %-d, %Y')}"
+                )
+                report_date_label = f"Week of {s.strftime('%-d %b')} – {e.strftime('%-d %b %Y')}"
+            except ValueError:
+                week_label = f"{report.window_start} – {report.window_end}"
 
         card_data = [
-            [Paragraph('DRIVER', driver_label),    Paragraph('REPORT DATE', driver_label)],
+            [Paragraph('DRIVER',       driver_label), Paragraph('REPORTING WEEK', driver_label)],
             [Paragraph(f'<b>{report.driver_name}</b>', driver_name_style),
-             Paragraph(report.report_date, driver_name_style)],
-            [Paragraph(dtype_badge, driver_label), Paragraph(window_str, driver_label)],
+             Paragraph(report_date_label, driver_name_style)],
+            [Paragraph(dtype_badge,    driver_label), Paragraph(week_label, driver_label)],
         ]
         card_table = Table(card_data, colWidths=[4.5 * inch, 2 * inch])
         card_table.setStyle(TableStyle([

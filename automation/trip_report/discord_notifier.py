@@ -31,23 +31,28 @@ def _webhook_url() -> str:
     )
 
 
+def _fmt_week(window_start: str, window_end: str) -> str:
+    """Return "Sun Apr 5 – Sat Apr 11, 2026" style string."""
+    try:
+        s = datetime.strptime(window_start, '%Y-%m-%d')
+        e = datetime.strptime(window_end,   '%Y-%m-%d')
+        return f"{s.strftime('%a %b %-d')} – {e.strftime('%a %b %-d, %Y')}"
+    except ValueError:
+        return f"{window_start} – {window_end}"
+
+
 class DiscordReportNotifier:
     """Posts per-driver report status to a Discord webhook."""
 
     def notify_success(self, report, dry_run: bool = False) -> None:
-        """Post a success message after a driver report email is sent.
-
-        Args:
-            report:  DriverReport dataclass.
-            dry_run: If True, log the message but do not POST to Discord.
-        """
-        window = self._window_str(report)
-        dtype  = 'Owner Operator' if report.driver_type == 'owner_op' else 'Company Driver'
+        """Post a success message after a driver report email is sent."""
+        week  = _fmt_week(report.window_start, report.window_end)
+        dtype = 'Owner Operator' if report.driver_type == 'owner_op' else 'Company Driver'
 
         msg = (
             f"✅ **Driver Report Sent**\n"
             f"**Driver:** {report.driver_name}  ·  {dtype}\n"
-            f"**Period:** {window}\n"
+            f"**Week:** {week}\n"
             f"**Trips:** {report.trip_count}  |  "
             f"**Revenue:** ${report.total_revenue:,.2f}\n"
             f"📧 Email delivered to recipient."
@@ -61,14 +66,7 @@ class DiscordReportNotifier:
         error: str,
         dry_run: bool = False,
     ) -> None:
-        """Post a failure message when a step errors out.
-
-        Args:
-            driver_name: Name of the driver being processed.
-            step:        Which step failed (e.g. 'pdf', 'email', 'discord').
-            error:       Short error summary (will be truncated to 500 chars).
-            dry_run:     If True, log but do not POST.
-        """
+        """Post a failure message when a step errors out."""
         short_err = str(error)[:500]
         msg = (
             f"⚠️ **Driver Report FAILED**\n"
@@ -80,19 +78,22 @@ class DiscordReportNotifier:
 
     def notify_job_complete(
         self,
-        report_date: str,
-        driver_count: int,
-        total_trips: int,
+        window_start:  str,
+        window_end:    str,
+        driver_count:  int,
+        total_trips:   int,
         total_revenue: float,
-        failed_count: int,
-        dry_run: bool = False,
+        failed_count:  int,
+        dry_run:       bool = False,
     ) -> None:
         """Post a job-level summary after all driver reports are processed."""
-        status = '✅' if failed_count == 0 else '⚠️'
+        status  = '✅' if failed_count == 0 else '⚠️'
         dry_tag = '  *(DRY RUN)*' if dry_run else ''
+        week    = _fmt_week(window_start, window_end)
+
         msg = (
-            f"{status} **Daily Trip Report Complete**{dry_tag}\n"
-            f"**Date:** {report_date}\n"
+            f"{status} **Weekly Trip Report Complete**{dry_tag}\n"
+            f"**Week:** {week}\n"
             f"**Drivers reported:** {driver_count}  |  "
             f"**Trips:** {total_trips}  |  "
             f"**Total revenue:** ${total_revenue:,.2f}\n"
@@ -101,16 +102,6 @@ class DiscordReportNotifier:
         self._post(msg, dry_run)
 
     # ── Internal ──────────────────────────────────────────────────────────────
-
-    def _window_str(self, report) -> str:
-        if report.window_start and report.window_end:
-            try:
-                s = datetime.strptime(report.window_start, '%Y-%m-%d').strftime('%b %d')
-                e = datetime.strptime(report.window_end,   '%Y-%m-%d').strftime('%b %d, %Y')
-                return f"{s} – {e}"
-            except ValueError:
-                pass
-        return report.report_date
 
     def _post(self, content: str, dry_run: bool, is_error: bool = False) -> None:
         url = _webhook_url()
@@ -122,7 +113,6 @@ class DiscordReportNotifier:
             log.info("[DRY RUN] Discord message:\n%s", content)
             return
 
-        # Truncate to Discord's 2000-char limit with a safety margin
         if len(content) > 1950:
             content = content[:1947] + '...'
 
@@ -137,5 +127,4 @@ class DiscordReportNotifier:
             urllib.request.urlopen(req, timeout=10)
             log.info("Discord notification posted (%d chars).", len(content))
         except Exception as exc:
-            # Non-fatal — log and continue
             log.warning("Discord POST failed: %s", exc)

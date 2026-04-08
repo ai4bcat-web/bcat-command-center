@@ -2217,35 +2217,45 @@ def dsp_import_batches():
 @app.route('/api/report/trigger', methods=['POST'])
 @login_required
 def trigger_report_job():
-    """Manually trigger the daily trip report job (for testing / on-demand sends).
+    """Manually trigger the weekly trip report job (for testing / on-demand sends).
+
+    The reporting window is always a Sunday–Saturday Amazon week.
 
     Body (JSON, all optional):
-        dry_run      bool   — generate PDFs but skip email + Discord (default false)
-        report_date  str    — override the report date YYYY-MM-DD (default today)
-        window_days  int    — days of history to include (default REPORT_WINDOW_DAYS env / 7)
+        dry_run      bool  — generate PDFs but skip email + Discord (default false)
+        week_ending  str   — Saturday YYYY-MM-DD; auto-computes Sunday start
+                             e.g. "2026-04-11" → reports Apr 5–11
+        week_start   str   — explicit Sunday YYYY-MM-DD (use with week_end)
+        week_end     str   — explicit Saturday YYYY-MM-DD (use with week_start)
+        (if none supplied, auto-resolves to most recently completed Sunday–Saturday week)
 
     Returns:
-        202 with {jobRunId, reportDate, windowStart, windowEnd, dryRun}
+        202 with {status, windowStart, windowEnd, dryRun}
         503 if DATABASE_URL is not set
     """
     if not _DB_ENABLED:
         return jsonify({'error': 'DATABASE_URL is required to run report jobs.'}), 503
 
     import threading
-    from datetime import date, timedelta
+    from automation.trip_report.job import _window_from_params
 
     data        = request.get_json(silent=True) or {}
     dry_run     = bool(data.get('dry_run', False))
-    report_date = data.get('report_date') or date.today().isoformat()
-    window_days = int(data.get('window_days', int(os.getenv('REPORT_WINDOW_DAYS', 7))))
-    window_end   = (date.today() - timedelta(days=1)).isoformat()
-    window_start = (date.today() - timedelta(days=window_days)).isoformat()
+    week_ending = data.get('week_ending') or None
+    week_start  = data.get('week_start')  or None
+    week_end    = data.get('week_end')    or None
+
+    window_start, window_end = _window_from_params(week_ending, week_start, week_end)
 
     def _run():
         try:
-            from automation.trip_report.job import DailyTripHistoryReportJob
-            job = DailyTripHistoryReportJob(app=app)
-            job.run(report_date=report_date, dry_run=dry_run)
+            from automation.trip_report.job import WeeklyTripHistoryReportJob
+            job = WeeklyTripHistoryReportJob(app=app)
+            job.run(
+                dry_run    = dry_run,
+                week_start = window_start,
+                week_end   = window_end,
+            )
         except Exception as exc:
             _log.error("Manual report trigger failed: %s", exc, exc_info=True)
 
@@ -2254,11 +2264,9 @@ def trigger_report_job():
 
     return jsonify({
         'status':      'triggered',
-        'reportDate':  report_date,
         'windowStart': window_start,
         'windowEnd':   window_end,
         'dryRun':      dry_run,
-        'windowDays':  window_days,
     }), 202
 
 

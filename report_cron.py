@@ -1,13 +1,22 @@
 """
-report_cron.py — Railway cron entry point for the daily Amazon trip report.
+report_cron.py — Railway cron entry point for the weekly Amazon trip report.
 
 Runs once and exits.  Railway's cron service calls this on schedule.
 
-Railway cron schedule:  0 14 * * *
+Reporting window
+────────────────
+Each report covers the most recently completed Amazon weekly window: Sunday–Saturday.
+
+The job runs on Sunday morning, reporting on the week that ended the day before (Saturday).
+
+Example: job fires Sunday Apr 12 → reports on Apr 5 (Sun) through Apr 11 (Sat).
+
+Railway cron schedule:  0 14 * * 0
 Timezone note:          Railway cron runs in UTC.
                         8:00 AM CST (UTC-6) = 14:00 UTC
                         8:00 AM CDT (UTC-5) = 13:00 UTC
-                        Use 0 14 * * * year-round (1h drift in summer is acceptable).
+                        Use 0 14 * * 0 year-round (1h drift in summer is acceptable).
+                        The "0" at the end means Sunday only (not every day).
 
 Start command (Railway cron service):
     bash start_report_cron.sh
@@ -18,7 +27,9 @@ Required Railway environment variables:
     DISCORD_WEBHOOK_URL       — (optional) Discord webhook for status notifications
 
 Optional:
-    REPORT_WINDOW_DAYS        — days of trip history to include (default: 7)
+    REPORT_WEEK_ENDING        — override the reporting window; set to the Saturday
+                                end date (YYYY-MM-DD) to report on a specific week
+                                e.g. REPORT_WEEK_ENDING=2026-04-11
     REPORT_DRY_RUN            — "true" to generate PDFs but skip email + Discord
     REPORT_FORCE_RESEND       — "true" to bypass idempotency and resend
     REPORT_DRIVER_NAMES       — comma-separated driver allow-list
@@ -34,8 +45,11 @@ Manual test run:
     DATABASE_URL=<url> REPORT_RECIPIENT_EMAIL=you@example.com python report_cron.py
 
 Dry run (generates PDFs, no email, no Discord POST):
-    DATABASE_URL=<url> REPORT_RECIPIENT_EMAIL=you@example.com \\
-        REPORT_DRY_RUN=true python report_cron.py
+    DATABASE_URL=<url> REPORT_RECIPIENT_EMAIL=x REPORT_DRY_RUN=true python report_cron.py
+
+Run for a specific week (supply the Saturday end date):
+    DATABASE_URL=<url> REPORT_RECIPIENT_EMAIL=x \\
+        REPORT_WEEK_ENDING=2026-04-11 python report_cron.py
 """
 
 import logging
@@ -97,19 +111,21 @@ def _ensure_tables(app):
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> int:
+    week_ending = os.getenv('REPORT_WEEK_ENDING', '').strip()
+
     log.info("report_cron starting...")
-    log.info("RECIPIENT set : %s", bool(os.getenv('REPORT_RECIPIENT_EMAIL')))
-    log.info("DB set        : %s", bool(os.getenv('DATABASE_URL')))
-    log.info("DRY RUN       : %s", os.getenv('REPORT_DRY_RUN', 'false'))
-    log.info("WINDOW DAYS   : %s", os.getenv('REPORT_WINDOW_DAYS', '7'))
+    log.info("RECIPIENT set  : %s", bool(os.getenv('REPORT_RECIPIENT_EMAIL')))
+    log.info("DB set         : %s", bool(os.getenv('DATABASE_URL')))
+    log.info("DRY RUN        : %s", os.getenv('REPORT_DRY_RUN', 'false'))
+    log.info("WEEK ENDING    : %s", week_ending or '(auto-resolve Sun–Sat)')
 
     app = _init_app()
     _ensure_tables(app)
 
-    from automation.trip_report.job import DailyTripHistoryReportJob
+    from automation.trip_report.job import WeeklyTripHistoryReportJob
 
-    job = DailyTripHistoryReportJob(app=app)
-    success = job.run()
+    job     = WeeklyTripHistoryReportJob(app=app)
+    success = job.run(week_ending=week_ending or None)
 
     return 0 if success else 1
 

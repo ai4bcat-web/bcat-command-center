@@ -13,5 +13,9 @@
 #   and trigger a manual Railway deployment of this cron service.
 set -e
 
+echo "Writing Gmail credentials from env vars..."
+[ -n "$GMAIL_TOKEN_JSON" ] && echo "$GMAIL_TOKEN_JSON" > token.json
+[ -n "$GMAIL_CREDS_JSON" ] && echo "$GMAIL_CREDS_JSON" > credentials.json
+
 echo "Weekly trip report cron starting..."
 exec python report_cron.py

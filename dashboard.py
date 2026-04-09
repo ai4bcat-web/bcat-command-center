@@ -2215,6 +2215,7 @@ def dsp_import_batches():
 # ── Trip Report API ───────────────────────────────────────────────────────────
 
 @app.route('/api/report/trigger', methods=['POST'])
+@csrf.exempt
 @login_required
 def trigger_report_job():
     """Manually trigger the weekly trip report job (for testing / on-demand sends).

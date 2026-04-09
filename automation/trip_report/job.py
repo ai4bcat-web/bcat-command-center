@@ -377,14 +377,26 @@ class WeeklyTripHistoryReportJob:
 
     def _load_from_db(self, window_start: str, window_end: str) -> list:
         from models import AmazonTrip
+        # Expand query 1 day before window_start to capture late Saturday trips
+        # that Amazon includes in the Sunday week (UTC boundary crossings).
+        query_start = (date.fromisoformat(window_start) - timedelta(days=1)).isoformat()
         with self._app.app_context():
             rows = (
                 AmazonTrip.query
-                .filter(AmazonTrip.trip_date >= window_start)
+                .filter(AmazonTrip.trip_date >= query_start)
                 .filter(AmazonTrip.trip_date <= window_end)
                 .all()
             )
-            log.info("DB query returned %d rows.", len(rows))
+            log.info("DB query returned %d rows (window %s–%s, query from %s).",
+                     len(rows), window_start, window_end, query_start)
+            # Log boundary-day trips (the day before window_start) separately
+            boundary_rows = [r for r in rows if str(r.trip_date) == query_start]
+            if boundary_rows:
+                log.info("Boundary-day trips on %s (%d):", query_start, len(boundary_rows))
+                for r in boundary_rows:
+                    log.info("  [boundary] trip %s | driver=%s | status=%s | revenue=$%.2f",
+                             r.trip_id, r.driver, r.status,
+                             float(r.trip_revenue or 0))
             return [r.to_dict() for r in rows]
 
     def _load_from_csv(self, window_start: str, window_end: str) -> list:

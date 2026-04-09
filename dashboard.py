@@ -277,12 +277,13 @@ if config.DATABASE_URL:
     _ensure_report_tables()
 
     def _migrate_amazon_trips_schema():
-        """Drop the old single-column unique constraint on amazon_trips.trip_id and
-        replace it with a composite (trip_id, driver) constraint so duplicate Trip IDs
-        across different drivers are stored correctly."""
+        """Migrate amazon_trips to composite (trip_id, driver) unique key.
+        Only drops relay_current_week if it has the wrong schema (missing driver column).
+        Never wipes relay_current_week if it already has the correct schema."""
         try:
-            from sqlalchemy import text as _text
+            from sqlalchemy import text as _text, inspect as _si
             with app.app_context():
+                inspector = _si(db.engine)
                 with db.engine.begin() as conn:
                     # Drop the old unique index created by unique=True on trip_id
                     conn.execute(_text(
@@ -293,11 +294,15 @@ if config.DATABASE_URL:
                         "CREATE UNIQUE INDEX IF NOT EXISTS uq_amazon_trips_trip_driver "
                         "ON amazon_trips(trip_id, driver) WHERE trip_id IS NOT NULL"
                     ))
-                    # Drop and recreate relay_current_week so db.create_all() applies the
-                    # new composite primary key schema (trip_id + driver)
-                    conn.execute(_text("DROP TABLE IF EXISTS relay_current_week"))
+                    # Only drop relay_current_week if driver column is missing (wrong schema).
+                    # If it already has the right schema, leave it alone — don't wipe data.
+                    if inspector.has_table('relay_current_week'):
+                        cols = {c['name'] for c in inspector.get_columns('relay_current_week')}
+                        if 'driver' not in cols:
+                            conn.execute(_text("DROP TABLE relay_current_week"))
+                            _log.info("relay_current_week dropped for schema upgrade.")
                 db.create_all()
-                _log.info("amazon_trips schema migrated to composite (trip_id, driver) key.")
+                _log.info("amazon_trips schema migration complete.")
         except Exception as _me:
             _log.warning("amazon_trips schema migration skipped: %s", _me)
 

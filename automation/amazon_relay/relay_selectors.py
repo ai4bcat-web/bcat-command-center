@@ -61,6 +61,48 @@ TRIPS_HISTORY_PAGE_URL  = "/tours/history"  # exact path after clicking the Hist
 # The History tab is a <button>, not an <a> tag.
 NAV_HISTORY_TAB         = "button:has-text('History')"
 
+# ── Date range filter on History tab ─────────────────────────────────────
+# Amazon Relay History shows a date range picker above the trip table.
+# Selectors are tried in order; first match wins.
+#
+# If these break, run with RELAY_HEADLESS=false — the fetcher logs all
+# visible buttons/inputs/selects to help identify the right selectors.
+DATE_FILTER_BUTTON      = (
+    "button:has-text('Date range'), "
+    "button:has-text('Filter by date'), "
+    "button:has-text('Week'), "
+    "[aria-label*='date range' i], "
+    "[aria-label*='filter' i]"
+)
+DATE_START_INPUT        = (
+    "input[aria-label*='start' i], "
+    "input[placeholder*='start' i], "
+    "input[name*='start' i], "
+    "input[aria-label*='from' i], "
+    "input[placeholder*='from' i], "
+    "input[type='date']:first-of-type"
+)
+DATE_END_INPUT          = (
+    "input[aria-label*='end' i], "
+    "input[placeholder*='end' i], "
+    "input[name*='end' i], "
+    "input[aria-label*='to' i], "
+    "input[placeholder*='to' i], "
+    "input[type='date']:last-of-type"
+)
+DATE_APPLY_BUTTON       = (
+    "button:has-text('Apply'), "
+    "button:has-text('Search'), "
+    "button:has-text('Update'), "
+    "button:has-text('Go')"
+)
+DATE_THIS_WEEK          = (
+    "button:has-text('This week'), "
+    "li:has-text('This week'), "
+    "option:has-text('This week'), "
+    "[aria-label*='this week' i]"
+)
+
 # ── Export control (confirmed as a direct-download <button>) ─────────────
 # Clicking Export on /tours/history triggers an immediate file download —
 # no modal or format-chooser appears.

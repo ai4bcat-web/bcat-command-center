@@ -42,7 +42,7 @@ import logging
 import os
 import sys
 import urllib.request
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 # ── path setup ────────────────────────────────────────────────────────────
@@ -98,9 +98,16 @@ def main() -> int:
     log.info(f"DB set:    {bool(os.getenv('DATABASE_URL'))}")
     log.info("=" * 60)
 
+    # ── Compute current Amazon week window (Sunday–today) ─────────────────
+    today = date.today()
+    days_since_sunday = (today.weekday() + 1) % 7   # Mon=0→1 … Sun=6→0
+    window_start = str(today - timedelta(days=days_since_sunday))
+    window_end   = str(today)
+    log.info("Fetch window: %s – %s", window_start, window_end)
+
     # ── 1. Fetch ──────────────────────────────────────────────────────────
     try:
-        csv_path = asyncio.run(fetch_relay_csv())
+        csv_path = asyncio.run(fetch_relay_csv(window_start=window_start, window_end=window_end))
         log.info(f"Fetch OK: {csv_path}")
     except RuntimeError as e:
         err = str(e)

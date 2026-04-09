@@ -324,7 +324,115 @@ async def _dismiss_interstitials(page) -> None:
         pass   # modal not present — that's fine
 
 
-async def _navigate_to_trips_history(page, already_on_tours: bool = False) -> None:
+async def _log_page_controls(page) -> None:
+    """Dump all visible interactive elements to logs — helps diagnose selector issues."""
+    try:
+        controls = await page.evaluate("""() => {
+            return [...document.querySelectorAll(
+                'button, input, select, [role="button"], [role="combobox"], [role="option"]'
+            )]
+            .filter(el => el.offsetParent !== null)
+            .slice(0, 60)
+            .map(el => ({
+                tag:         el.tagName,
+                text:        (el.innerText || el.value || '').trim().slice(0, 60),
+                type:        el.type || '',
+                placeholder: el.placeholder || '',
+                ariaLabel:   el.getAttribute('aria-label') || '',
+                name:        el.name || '',
+                id:          el.id || '',
+            }));
+        }""")
+        log.info("Visible page controls (%d total):", len(controls))
+        for c in controls:
+            log.info("  %s", c)
+    except Exception as e:
+        log.debug("Could not dump page controls: %s", e)
+
+
+async def _apply_date_filter(page, window_start: str, window_end: str) -> bool:
+    """
+    Try to set the History tab date range to window_start–window_end.
+
+    Attempts multiple strategies; returns True if any succeeded.
+    Never raises — a failure just means the default date range is used.
+
+    Date format expected: 'YYYY-MM-DD'
+    """
+    try:
+        s = datetime.strptime(window_start, '%Y-%m-%d')
+        e = datetime.strptime(window_end,   '%Y-%m-%d')
+    except ValueError:
+        log.warning("Invalid window dates for date filter: %s – %s", window_start, window_end)
+        return False
+
+    # Amazon Relay shows dates as MM/DD/YYYY in its UI inputs
+    start_str = s.strftime('%-m/%-d/%Y')  # e.g. 4/5/2026
+    end_str   = e.strftime('%-m/%-d/%Y')  # e.g. 4/8/2026
+
+    log.info("Applying date filter: %s – %s", window_start, window_end)
+
+    # ── Strategy 1: "This week" quick-select ──────────────────────────────
+    # Amazon Relay may offer a "This week" preset that selects the current
+    # Sunday–Saturday window automatically.
+    try:
+        el = await page.query_selector(SEL.DATE_THIS_WEEK)
+        if el and await el.is_visible():
+            await el.click()
+            await page.wait_for_timeout(2_000)
+            log.info("Date filter: clicked 'This week' preset.")
+            return True
+    except Exception as exc:
+        log.debug("Strategy 1 (This week): %s", exc)
+
+    # ── Strategy 2: Open date-range picker then fill start/end inputs ─────
+    try:
+        trigger = await page.query_selector(SEL.DATE_FILTER_BUTTON)
+        if trigger and await trigger.is_visible():
+            await trigger.click()
+            await page.wait_for_timeout(1_000)
+            log.info("Date filter: opened date picker via trigger button.")
+    except Exception as exc:
+        log.debug("Strategy 2 trigger: %s", exc)
+
+    try:
+        start_el = await page.query_selector(SEL.DATE_START_INPUT)
+        end_el   = await page.query_selector(SEL.DATE_END_INPUT)
+        if start_el and end_el:
+            await start_el.triple_click()
+            await start_el.type(start_str)
+            await end_el.triple_click()
+            await end_el.type(end_str)
+            await page.wait_for_timeout(500)
+            log.info("Date filter: filled start=%s end=%s", start_str, end_str)
+
+            # Click Apply/Search if present
+            try:
+                apply_btn = await page.query_selector(SEL.DATE_APPLY_BUTTON)
+                if apply_btn and await apply_btn.is_visible():
+                    await apply_btn.click()
+                    await page.wait_for_timeout(2_000)
+                    log.info("Date filter: clicked Apply.")
+            except Exception as exc:
+                log.debug("Strategy 2 apply: %s", exc)
+
+            return True
+    except Exception as exc:
+        log.debug("Strategy 2 (fill inputs): %s", exc)
+
+    log.warning(
+        "Could not apply date filter — exporting whatever Amazon Relay shows by default. "
+        "Check the 'Visible page controls' log lines above to find the right selectors."
+    )
+    return False
+
+
+async def _navigate_to_trips_history(
+    page,
+    already_on_tours: bool = False,
+    window_start: str = '',
+    window_end:   str = '',
+) -> None:
     """
     Navigate to the Trips → History tab on Amazon Relay.
 
@@ -333,6 +441,7 @@ async def _navigate_to_trips_history(page, already_on_tours: bool = False) -> No
       2. Dismiss "Give Feedback" modal if present (Cancel button)
       3. Click the History <button> tab  → URL becomes /tours/history
       4. Wait for Export button to confirm history view loaded
+      5. Apply date range filter (window_start – window_end) if provided
 
     NOTE: /trips 404s. The real path is /tours/.
     """
@@ -384,6 +493,15 @@ async def _navigate_to_trips_history(page, already_on_tours: bool = False) -> No
             "Update HISTORY_PAGE_READY in relay_selectors.py."
         )
 
+    # Always dump visible controls — helps diagnose date filter selectors
+    await _log_page_controls(page)
+
+    # Apply date range filter if window dates were provided
+    if window_start and window_end:
+        await _apply_date_filter(page, window_start, window_end)
+        # Wait for the page to reload results after filter change
+        await page.wait_for_timeout(3_000)
+
 
 async def _trigger_csv_download(page) -> Path:
     """
@@ -433,9 +551,18 @@ async def _trigger_csv_download(page) -> Path:
 
 # ── public entry point ────────────────────────────────────────────────────
 
-async def fetch_relay_csv() -> Path:
+async def fetch_relay_csv(
+    window_start: str = '',
+    window_end:   str = '',
+) -> Path:
     """
     Full fetch flow with retry logic.
+
+    Args:
+        window_start: YYYY-MM-DD start of the reporting window (e.g. '2026-04-05').
+                      When provided, the fetcher tries to apply this date range in
+                      the History tab filter before clicking Export.
+        window_end:   YYYY-MM-DD end of the reporting window (e.g. '2026-04-08').
 
     Strategy is selected automatically:
       - DATABASE_URL set  → DB-backed cookies (Railway)
@@ -501,11 +628,17 @@ async def fetch_relay_csv() -> Path:
                     fresh = await context.cookies()
                     _save_cookies_to_db(fresh, status="ok")
                     # After login we land on homepage — need full /tours/ navigation
-                    await _navigate_to_trips_history(page, already_on_tours=False)
+                    await _navigate_to_trips_history(
+                        page, already_on_tours=False,
+                        window_start=window_start, window_end=window_end,
+                    )
                 else:
                     log.info(f"Session valid — already on {page.url}")
                     # Already on /tours/ from session check — skip re-navigation
-                    await _navigate_to_trips_history(page, already_on_tours=True)
+                    await _navigate_to_trips_history(
+                        page, already_on_tours=True,
+                        window_start=window_start, window_end=window_end,
+                    )
                 csv_path = await _trigger_csv_download(page)
 
                 # Save fresh cookies after every successful run (both strategies)

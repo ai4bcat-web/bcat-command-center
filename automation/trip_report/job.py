@@ -377,24 +377,26 @@ class WeeklyTripHistoryReportJob:
 
     def _load_from_db(self, window_start: str, window_end: str) -> list:
         from models import AmazonTrip, RelayCurrentWeek
-        from sqlalchemy import and_
-        from extensions import db
         with self._app.app_context():
             # Use the relay_current_week table populated by the last relay_cron fetch.
-            # Matches on (trip_id, driver) so duplicate Trip IDs across drivers are
-            # all included — exactly mirroring what Amazon exported for this week.
-            current_pairs = [(r.trip_id, r.driver) for r in RelayCurrentWeek.query.all()]
-            if current_pairs:
+            # Each row is a Load ID — the true unique identifier per Amazon Relay CSV row.
+            # Querying by load_id preserves all legs of multi-leg trips (duplicate Trip IDs).
+            current_ids = [r.load_id for r in RelayCurrentWeek.query.all()]
+            if current_ids:
                 rows = AmazonTrip.query.filter(
-                    and_(AmazonTrip.trip_id == tid, AmazonTrip.driver == drv)
-                    if len(current_pairs) == 1
-                    else db.or_(*[
-                        and_(AmazonTrip.trip_id == tid, AmazonTrip.driver == drv)
-                        for tid, drv in current_pairs
-                    ])
+                    AmazonTrip.load_id.in_(current_ids)
                 ).all()
-                log.info("Loaded %d trips from relay_current_week (%d pairs tracked).",
-                         len(rows), len(current_pairs))
+                log.info("Loaded %d trips from relay_current_week (%d load_ids tracked).",
+                         len(rows), len(current_ids))
+
+                # Reconciliation log: per-driver breakdown
+                by_driver: dict[str, list] = {}
+                for r in rows:
+                    by_driver.setdefault(r.driver or 'UNKNOWN', []).append(r)
+                for drv, drv_rows in sorted(by_driver.items()):
+                    rev = sum(r.trip_revenue or 0 for r in drv_rows)
+                    log.info("  RECONCILE %-30s  trips=%d  revenue=$%.2f",
+                             drv, len(drv_rows), rev)
             else:
                 # Fallback to date range if no current-week data exists yet
                 log.warning("relay_current_week table is empty — falling back to date range %s–%s.",

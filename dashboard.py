@@ -277,30 +277,59 @@ if config.DATABASE_URL:
     _ensure_report_tables()
 
     def _migrate_amazon_trips_schema():
-        """Migrate amazon_trips to composite (trip_id, driver) unique key.
-        Only drops relay_current_week if it has the wrong schema (missing driver column).
-        Never wipes relay_current_week if it already has the correct schema."""
+        """Migrate amazon_trips and relay_current_week to use Load ID as unique key.
+
+        - Adds load_id column to amazon_trips if missing.
+        - Drops old (trip_id, driver) unique constraint; creates unique index on load_id.
+        - Drops relay_current_week if it lacks the load_id primary key (schema upgrade).
+          If it already has load_id as PK, leave it alone — don't wipe current-week data.
+        """
         try:
             from sqlalchemy import text as _text, inspect as _si
             with app.app_context():
                 inspector = _si(db.engine)
                 with db.engine.begin() as conn:
-                    # Drop the old unique index created by unique=True on trip_id
-                    conn.execute(_text(
-                        "ALTER TABLE amazon_trips DROP CONSTRAINT IF EXISTS amazon_trips_trip_id_key"
-                    ))
-                    # Create composite unique index if it doesn't exist
-                    conn.execute(_text(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_amazon_trips_trip_driver "
-                        "ON amazon_trips(trip_id, driver) WHERE trip_id IS NOT NULL"
-                    ))
-                    # Only drop relay_current_week if driver column is missing (wrong schema).
-                    # If it already has the right schema, leave it alone — don't wipe data.
+                    # ── amazon_trips: add load_id column if missing ────────────
+                    if inspector.has_table('amazon_trips'):
+                        existing_cols = {c['name'] for c in inspector.get_columns('amazon_trips')}
+                        if 'load_id' not in existing_cols:
+                            conn.execute(_text("ALTER TABLE amazon_trips ADD COLUMN load_id VARCHAR(100)"))
+                            _log.info("amazon_trips: load_id column added.")
+
+                        # Drop old trip_id-only unique constraint (from original schema)
+                        try:
+                            conn.execute(_text(
+                                "ALTER TABLE amazon_trips DROP CONSTRAINT IF EXISTS amazon_trips_trip_id_key"
+                            ))
+                        except Exception:
+                            pass
+                        # Drop old composite (trip_id, driver) unique index
+                        try:
+                            conn.execute(_text(
+                                "ALTER TABLE amazon_trips DROP CONSTRAINT IF EXISTS uq_amazon_trips_trip_driver"
+                            ))
+                        except Exception:
+                            pass
+                        try:
+                            conn.execute(_text("DROP INDEX IF EXISTS uq_amazon_trips_trip_driver"))
+                        except Exception:
+                            pass
+
+                        # Create unique index on load_id
+                        conn.execute(_text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS uq_amazon_trips_load_id "
+                            "ON amazon_trips(load_id) WHERE load_id IS NOT NULL"
+                        ))
+
+                    # ── relay_current_week: drop if schema is wrong ────────────
+                    # Drop if load_id primary key is absent (old schema used trip_id+driver).
+                    # The ingestor will repopulate on next relay fetch.
                     if inspector.has_table('relay_current_week'):
                         cols = {c['name'] for c in inspector.get_columns('relay_current_week')}
-                        if 'driver' not in cols:
+                        if 'load_id' not in cols:
                             conn.execute(_text("DROP TABLE relay_current_week"))
-                            _log.info("relay_current_week dropped for schema upgrade.")
+                            _log.info("relay_current_week dropped for schema upgrade to load_id PK.")
+
                 db.create_all()
                 _log.info("amazon_trips schema migration complete.")
         except Exception as _me:

@@ -20,8 +20,10 @@ AMAZON_RELAY_CSV_PATH = "amazon_relay.csv"
 AMAZON_RELAY_COLUMN_MAP = {
     "driver name":           "driver",
     "trip id":               "trip_id",
+    "load id":               "load_id",   # unique per row — used as DB upsert key
     "estimated cost":        "trip_revenue",
     "load execution status": "status",
+    "facility sequence":     "route",
 }
 
 # Date columns tried in order — first one found in the CSV is used for week grouping.
@@ -675,7 +677,7 @@ def parse_amazon_relay_csv(path=None):
         df["trip_revenue"] = 0.0
 
     # Ensure required fields exist with safe defaults
-    for col, default in [("driver", ""), ("trip_id", ""), ("status", "")]:
+    for col, default in [("driver", ""), ("trip_id", ""), ("load_id", ""), ("status", "")]:
         if col not in df.columns:
             df[col] = default
 
@@ -718,13 +720,15 @@ def map_relay_row_to_trip(row):
     """
     driver       = _safe_str(row.get("driver",      ""))
     trip_id      = _safe_str(row.get("trip_id",     ""))
+    load_id      = _safe_str(row.get("load_id",     ""))
     trip_date    = _safe_str(row.get("trip_date",   ""))
     status       = _safe_str(row.get("status",      ""))
     trip_revenue = float(row.get("trip_revenue", 0) or 0)
 
     return {
         "driver":             driver or None,    # None → fails is_qualifying_trip
-        "trip_id":            trip_id or f"RELAY-unknown",
+        "trip_id":            trip_id or "RELAY-unknown",
+        "load_id":            load_id or None,   # unique per CSV row — used as DB upsert key
         "trip_date":          trip_date or None,
         "trip_revenue":       trip_revenue,
         # Legacy field names kept for frontend compatibility
@@ -733,7 +737,7 @@ def map_relay_row_to_trip(row):
         "bcat_revenue":       trip_revenue,       # ASSUMPTION: relay pay = BCAT revenue
         "status":             status,
         "driver_type":        "company",          # ASSUMPTION: relay = company drivers
-        "route":              "",
+        "route":              _safe_str(row.get("route", "")),
         "stops":              None,
     }
 

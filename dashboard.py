@@ -2314,6 +2314,49 @@ def trigger_report_job():
     }), 202
 
 
+@app.route('/api/relay/trigger', methods=['POST'])
+@csrf.exempt
+@login_required
+def trigger_relay_fetch():
+    """Manually trigger an Amazon Relay fetch (relay_cron) on demand.
+
+    Runs fetch + ingest in a background thread and returns immediately.
+    Populates relay_current_week so the report job uses the correct trip list.
+
+    Returns 202 with {status, windowStart, windowEnd}.
+    """
+    if not _DB_ENABLED:
+        return jsonify({'error': 'DATABASE_URL is required.'}), 503
+
+    from datetime import date, timedelta
+    today        = date.today()
+    days_since   = today.isoweekday() % 7   # Sun=0 … Sat=6
+    window_start = (today - timedelta(days=days_since)).isoformat()
+    window_end   = today.isoformat()
+
+    def _run():
+        import asyncio
+        try:
+            from automation.amazon_relay.fetcher  import fetch_relay_csv
+            from automation.amazon_relay.ingestor import ingest_relay_csv
+            _log.info("Manual relay fetch started — window %s–%s", window_start, window_end)
+            csv_path = asyncio.run(fetch_relay_csv(window_start=window_start, window_end=window_end))
+            _log.info("Relay fetch complete: %s (%s bytes)", csv_path, csv_path.stat().st_size if csv_path.exists() else 0)
+            result = ingest_relay_csv(csv_path)
+            _log.info("Relay ingest complete: %s", result)
+        except Exception as exc:
+            _log.error("Manual relay fetch failed: %s", exc, exc_info=True)
+
+    t = threading.Thread(target=_run, daemon=True, name='relay-fetch-manual')
+    t.start()
+
+    return jsonify({
+        'status':      'triggered',
+        'windowStart': window_start,
+        'windowEnd':   window_end,
+    }), 202
+
+
 @app.route('/api/report/debug/trips', methods=['GET'])
 @login_required
 def debug_trip_data():

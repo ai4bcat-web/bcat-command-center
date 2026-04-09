@@ -1,6 +1,9 @@
 # email_service.py
+import json
+import os
 import os.path
 import base64
+import tempfile
 
 from email.mime.text        import MIMEText
 from email.mime.multipart   import MIMEMultipart
@@ -12,14 +15,35 @@ from googleapiclient.discovery      import build
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
+# Resolve paths relative to this file so they work regardless of cwd
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_TOKEN_PATH = os.path.join(_HERE, "token.json")
+_CREDS_PATH = os.path.join(_HERE, "credentials.json")
+
+
+def _write_env_credentials():
+    """Write token.json / credentials.json from env vars if the files are missing."""
+    token_env = os.getenv("GMAIL_TOKEN_JSON", "").strip()
+    creds_env  = os.getenv("GMAIL_CREDS_JSON", "").strip()
+
+    if token_env and not os.path.exists(_TOKEN_PATH):
+        with open(_TOKEN_PATH, "w") as f:
+            f.write(base64.b64decode(token_env).decode())
+
+    if creds_env and not os.path.exists(_CREDS_PATH):
+        with open(_CREDS_PATH, "w") as f:
+            f.write(base64.b64decode(creds_env).decode())
+
 
 class EmailService:
     def __init__(self):
         self.creds = None
 
+        _write_env_credentials()
+
         # Load saved token if it exists
-        if os.path.exists("token.json"):
-            self.creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+        if os.path.exists(_TOKEN_PATH):
+            self.creds = Credentials.from_authorized_user_file(_TOKEN_PATH, SCOPES)
 
         # Refresh or create new credentials
         if not self.creds or not self.creds.valid:
@@ -27,12 +51,12 @@ class EmailService:
                 self.creds.refresh(Request())
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
-                    "credentials.json", SCOPES
+                    _CREDS_PATH, SCOPES
                 )
                 self.creds = flow.run_local_server(port=0)
 
-            # Save token for future runs
-            with open("token.json", "w") as token:
+            # Save refreshed token
+            with open(_TOKEN_PATH, "w") as token:
                 token.write(self.creds.to_json())
 
         self.service = build("gmail", "v1", credentials=self.creds)

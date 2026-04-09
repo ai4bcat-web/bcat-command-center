@@ -8,8 +8,8 @@ Reporting window
 Each report covers the current Amazon week-to-date: the most recent Sunday through today.
 Drivers receive a fresh report every morning showing all trips completed so far this week.
 
-The nightly relay fetch (relay_cron, 04:00 UTC) runs first so data is always fresh
-by the time this job fires at 14:00 UTC.
+The relay fetch (relay_cron, 13:30 UTC / 7:30 AM CST) runs 30 minutes before this job
+so data is always fresh when reports fire at 14:00 UTC / 8:00 AM CST.
 
 Example: job fires Wednesday Apr 9 → reports on Apr 5 (Sun) through Apr 9 (today).
 

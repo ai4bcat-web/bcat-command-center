@@ -3,11 +3,13 @@ relay_cron.py — Railway cron entry point for nightly Amazon Relay fetch.
 
 Runs once and exits. Railway's cron service calls this on schedule.
 
-Railway cron schedule:  0 4 * * *
+Railway cron schedule:  30 13 * * *
 Timezone note:          Railway cron runs in UTC.
-                        10:00 PM CST (UTC-6) = 04:00 UTC
-                        10:00 PM CDT (UTC-5) = 03:00 UTC
-                        Use 0 4 * * * year-round (acceptable 1h drift in summer).
+                        7:30 AM CST (UTC-6) = 13:30 UTC
+                        7:30 AM CDT (UTC-5) = 12:30 UTC
+                        Use 30 13 * * * year-round (acceptable 1h drift in summer).
+                        Runs 30 minutes before report_cron (14:00 UTC) so data is
+                        always fresh when the report fires.
 
 Start command (Railway cron service):
     python relay_cron.py

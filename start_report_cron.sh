@@ -14,8 +14,8 @@
 set -e
 
 echo "Writing Gmail credentials from env vars..."
-[ -n "$GMAIL_TOKEN_JSON" ] && echo "$GMAIL_TOKEN_JSON" | base64 -d > token.json
-[ -n "$GMAIL_CREDS_JSON" ] && echo "$GMAIL_CREDS_JSON" | base64 -d > credentials.json
+[ -n "$GMAIL_TOKEN_JSON" ] && echo "$GMAIL_TOKEN_JSON" | base64 -d > token.json || true
+[ -n "$GMAIL_CREDS_JSON" ] && echo "$GMAIL_CREDS_JSON" | base64 -d > credentials.json || true
 
 echo "Weekly trip report cron starting..."
 exec python report_cron.py

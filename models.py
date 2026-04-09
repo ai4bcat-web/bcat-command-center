@@ -334,14 +334,16 @@ def set_current_week_trips(trip_pairs: list[tuple[str, str]]) -> int:
     Returns the number of pairs stored.
     """
     db.session.query(RelayCurrentWeek).delete()
-    now = datetime.utcnow()
+    now  = datetime.utcnow()
+    seen = set()
     for tid, driver in trip_pairs:
         tid    = (tid    or '').strip()
         driver = (driver or '').strip()
-        if tid:
+        if tid and (tid, driver) not in seen:
+            seen.add((tid, driver))
             db.session.add(RelayCurrentWeek(trip_id=tid, driver=driver, fetched_at=now))
     db.session.commit()
-    return len(trip_pairs)
+    return len(seen)
 
 
 class IvanScheduleEntry(db.Model):

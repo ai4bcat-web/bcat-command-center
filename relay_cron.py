@@ -94,8 +94,9 @@ def _notify(msg: str, is_error: bool = False) -> None:
 def main() -> int:
     log.info("=" * 60)
     log.info(f"Amazon Relay cron — {datetime.utcnow():%Y-%m-%d %H:%M:%S} UTC")
-    log.info(f"EMAIL set: {bool(os.getenv('AMAZON_RELAY_EMAIL'))}")
-    log.info(f"DB set:    {bool(os.getenv('DATABASE_URL'))}")
+    log.info(f"EMAIL set:    {bool(os.getenv('AMAZON_RELAY_EMAIL'))}")
+    log.info(f"DB set:       {bool(os.getenv('DATABASE_URL'))}")
+    log.info(f"HEADLESS:     {os.getenv('RELAY_HEADLESS', 'true')}")
     log.info("=" * 60)
 
     # ── Compute current Amazon week window (Sunday–today) ─────────────────
@@ -108,7 +109,8 @@ def main() -> int:
     # ── 1. Fetch ──────────────────────────────────────────────────────────
     try:
         csv_path = asyncio.run(fetch_relay_csv(window_start=window_start, window_end=window_end))
-        log.info(f"Fetch OK: {csv_path}")
+        size = csv_path.stat().st_size if csv_path.exists() else 0
+        log.info(f"Fetch OK: {csv_path}  ({size:,} bytes)")
     except RuntimeError as e:
         err = str(e)
         log.error(f"Fetch FAILED: {err}")
@@ -144,10 +146,15 @@ def main() -> int:
         return 1
 
     log.info(str(result))
+    log.info("Fetch window covered: %s – %s", window_start, window_end)
+    log.info("Rows from this fetch: %d new, %d preserved, %d total in cumulative file",
+             result.rows_new, result.rows_kept, result.rows_total)
+    log.info("DB rows written: %d", result.db_count)
 
     # ── 3. Success notification ───────────────────────────────────────────
     _notify(
         f"Date: {datetime.utcnow():%Y-%m-%d}\n"
+        f"Window:    **{window_start} – {window_end}**\n"
         f"New rows:  **{result.rows_new}**\n"
         f"Preserved: **{result.rows_kept}**\n"
         f"Total:     **{result.rows_total}**\n"

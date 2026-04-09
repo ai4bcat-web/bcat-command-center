@@ -11,6 +11,9 @@ flask db upgrade || echo "No migrations folder — skipping (schema managed by a
 echo "Seeding admin user..."
 flask create-admin || true
 
+echo "Fixing DSP driver type classifications..."
+flask fix-driver-types || true
+
 echo "Installing Playwright browser (Chromium)..."
 playwright install chromium --with-deps || true
 

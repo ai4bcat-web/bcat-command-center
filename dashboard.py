@@ -2316,12 +2316,20 @@ def trigger_report_job():
     week_ending  = data.get('week_ending') or None
     week_start   = data.get('week_start')  or None
     week_end     = data.get('week_end')    or None
+    driver_names = data.get('driver_names') or None   # comma-separated or list
 
     window_start, window_end = _window_from_params(week_ending, week_start, week_end)
 
+    # Normalise driver_names to a comma-separated string for REPORT_DRIVER_NAMES env override
+    if isinstance(driver_names, list):
+        driver_names = ','.join(driver_names)
+
     def _run():
         try:
+            import os as _os
             from automation.trip_report.job import WeeklyTripHistoryReportJob
+            if driver_names:
+                _os.environ['REPORT_DRIVER_NAMES'] = driver_names
             job = WeeklyTripHistoryReportJob(app=app)
             job.run(
                 dry_run      = dry_run,
@@ -2331,6 +2339,9 @@ def trigger_report_job():
             )
         except Exception as exc:
             _log.error("Manual report trigger failed: %s", exc, exc_info=True)
+        finally:
+            if driver_names:
+                _os.environ.pop('REPORT_DRIVER_NAMES', None)
 
     t = threading.Thread(target=_run, daemon=True, name='report-job-manual')
     t.start()
@@ -2340,6 +2351,7 @@ def trigger_report_job():
         'windowStart': window_start,
         'windowEnd':   window_end,
         'dryRun':      dry_run,
+        'driverNames': driver_names or 'all',
     }), 202
 
 

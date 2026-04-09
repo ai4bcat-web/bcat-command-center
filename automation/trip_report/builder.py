@@ -135,13 +135,14 @@ class TripReportBuilder:
     def _normalise(self, raw: Any) -> TripRecord:
         """Convert an ORM object or dict into a TripRecord."""
         if hasattr(raw, '__dict__'):
-            # SQLAlchemy ORM object
+            # SQLAlchemy ORM object — prefer gross_load_revenue (what Amazon paid),
+            # fall back to trip_revenue (driver payout), then bcat_revenue.
             return TripRecord(
                 trip_id     = str(raw.trip_id    or ''),
                 trip_date   = str(raw.trip_date  or ''),
                 driver      = str(raw.driver     or '').strip(),
                 driver_type = str(raw.driver_type or 'company'),
-                revenue     = float(raw.trip_revenue or raw.bcat_revenue or 0.0),
+                revenue     = float(raw.gross_load_revenue or raw.trip_revenue or raw.bcat_revenue or 0.0),
                 route       = str(raw.route  or ''),
                 stops       = int(raw.stops  or 0),
                 status      = str(raw.status or ''),
@@ -152,7 +153,7 @@ class TripReportBuilder:
             trip_date   = str(raw.get('trip_date', '')),
             driver      = str(raw.get('driver', '')).strip(),
             driver_type = str(raw.get('driver_type', 'company')),
-            revenue     = float(raw.get('trip_revenue') or raw.get('bcat_revenue') or 0.0),
+            revenue     = float(raw.get('gross_load_revenue') or raw.get('trip_revenue') or raw.get('bcat_revenue') or 0.0),
             route       = str(raw.get('route', '')),
             stops       = int(raw.get('stops') or 0),
             status      = str(raw.get('status', '')),

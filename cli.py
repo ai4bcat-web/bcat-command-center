@@ -197,6 +197,41 @@ def reset_password(email, new_password):
     click.echo(f'Password updated for {email}')
 
 
+@click.command('fix-driver-types')
+@with_appcontext
+def fix_driver_types():
+    """Correct DSP driver type classifications.
+
+    Sets: Lee Lara → owner_op, Roy Workman → owner_op, Chad Salerno → company.
+    Creates the driver record if it doesn't exist yet.
+    Safe to run multiple times (idempotent).
+    """
+    from models import DspDriver
+
+    corrections = [
+        ('Lee Lara',     'owner_op'),
+        ('Roy Workman',  'owner_op'),
+        ('Chad Salerno', 'company'),
+    ]
+
+    for name, dtype in corrections:
+        driver = DspDriver.query.filter(
+            db.func.lower(DspDriver.name) == name.lower()
+        ).first()
+        if driver:
+            old = driver.driver_type
+            driver.driver_type = dtype
+            driver.active = True
+            click.echo(f'  Updated {name}: {old} → {dtype}')
+        else:
+            driver = DspDriver(name=name, driver_type=dtype, active=True)
+            db.session.add(driver)
+            click.echo(f'  Created {name} as {dtype}')
+
+    db.session.commit()
+    click.echo('Driver type corrections applied.')
+
+
 @click.command('seed-schedule')
 @with_appcontext
 def seed_schedule():

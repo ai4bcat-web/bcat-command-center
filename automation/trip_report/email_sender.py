@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from datetime import datetime, date as date_type
+from datetime import datetime, date as date_type, timedelta
 
 log = logging.getLogger(__name__)
 
@@ -84,9 +84,25 @@ class ReportEmailSender:
             Exception: Any error from the Gmail API is re-raised so the caller
                        can record the failure in DriverReportRun.
         """
-        week_label = _fmt_week(report.window_start, report.window_end)
-        subject = f"Amazon Trip Report – {report.driver_name} – Week of {week_label}"
-        body    = self._build_body(report)
+        try:
+            s        = datetime.strptime(report.window_start, '%Y-%m-%d')
+            e        = datetime.strptime(report.window_end,   '%Y-%m-%d')
+            saturday = s + timedelta(days=6)
+            is_wtd   = e < saturday
+        except ValueError:
+            is_wtd = False
+
+        full_week_label = _fmt_week(report.window_start,
+                                     (datetime.strptime(report.window_start, '%Y-%m-%d') + timedelta(days=6)).strftime('%Y-%m-%d'))
+        if is_wtd:
+            through_label = _fmt_week(report.window_end, report.window_end).split(' –')[0]  # just the date
+            subject = (
+                f"Amazon Trip Report – {report.driver_name} – "
+                f"Week of {full_week_label} (WTD Through {datetime.strptime(report.window_end, '%Y-%m-%d').strftime('%b %-d')})"
+            )
+        else:
+            subject = f"Amazon Trip Report – {report.driver_name} – Week of {full_week_label}"
+        body    = self._build_body(report, is_wtd=is_wtd)
         attachment_name = (
             f"trip_report_{_slug(report.driver_name)}"
             f"_{report.window_start}_to_{report.window_end}.pdf"
@@ -115,24 +131,54 @@ class ReportEmailSender:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _build_body(self, report) -> str:
-        week_short = _fmt_week(report.window_start, report.window_end)
-        week_long  = _fmt_week_long(report.window_start, report.window_end)
+    def _build_body(self, report, is_wtd: bool = False) -> str:
+        try:
+            s        = datetime.strptime(report.window_start, '%Y-%m-%d')
+            saturday = s + timedelta(days=6)
+            full_week_long = (
+                f"Sunday, {s.strftime('%B %-d, %Y')} – Saturday, {saturday.strftime('%B %-d, %Y')}"
+            )
+            full_week_short = _fmt_week(
+                report.window_start, saturday.strftime('%Y-%m-%d')
+            )
+            e = datetime.strptime(report.window_end, '%Y-%m-%d')
+            through_long = e.strftime('%A, %B %-d, %Y')
+        except ValueError:
+            full_week_long  = f"{report.window_start} – {report.window_end}"
+            full_week_short = full_week_long
+            through_long    = report.window_end
 
-        lines = [
-            f"Amazon Weekly Trip Report — {report.driver_name}",
-            f"Week of {week_short}",
-            f"({week_long})",
-            '',
-            f"  Total trips  : {report.trip_count}",
-            f"  Total revenue: ${report.total_revenue:,.2f}",
-            '',
-            'The full trip detail is attached as a PDF.',
-            '',
-            '—',
-            'BCAT Command Center  |  Automated Weekly Finance Report',
-            f'Generated {datetime.utcnow():%Y-%m-%d %H:%M} UTC',
-        ]
+        if is_wtd:
+            lines = [
+                f"Amazon Trip Report — {report.driver_name}",
+                f"Reporting Week: {full_week_short}  (Week-to-Date)",
+                f"({full_week_long})",
+                f"Week-to-Date Through: {through_long}",
+                '',
+                f"  Total trips  : {report.trip_count}",
+                f"  Total revenue: ${report.total_revenue:,.2f}",
+                '',
+                'The full trip detail is attached as a PDF.',
+                '',
+                '—',
+                'BCAT Command Center  |  Automated Trip Finance Report',
+                f'Generated {datetime.utcnow():%Y-%m-%d %H:%M} UTC',
+            ]
+        else:
+            lines = [
+                f"Amazon Weekly Trip Report — {report.driver_name}",
+                f"Week of {full_week_short}",
+                f"({full_week_long})",
+                '',
+                f"  Total trips  : {report.trip_count}",
+                f"  Total revenue: ${report.total_revenue:,.2f}",
+                '',
+                'The full trip detail is attached as a PDF.',
+                '',
+                '—',
+                'BCAT Command Center  |  Automated Weekly Finance Report',
+                f'Generated {datetime.utcnow():%Y-%m-%d %H:%M} UTC',
+            ]
         return '\n'.join(lines)
 
     def _get_service(self):

@@ -82,27 +82,28 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 
 def _amazon_weekly_window(run_date: str | None = None) -> tuple[str, str]:
-    """Return (window_start, window_end) for the most recently completed Sun–Sat week.
+    """Return (window_start, window_end) for the CURRENT Amazon week-to-date.
+
+    Amazon week = Sunday through Saturday.
+    Returns (most recent Sunday, today) so the report always reflects the
+    current week in progress, not the prior completed week.
 
     Uses isoweekday(): Mon=1 … Sat=6, Sun=7.
+    days_since_sunday = isoweekday % 7  →  Sun=0, Mon=1, Tue=2 … Sat=6
 
-    Logic:
-      days_since_saturday = (isoweekday - 6) % 7
-      If today IS Saturday (days_since_sat == 0) we step back a full week so the
-      in-progress current week is never included.
+    Examples (run on Wednesday Apr 8):
+      isoweekday=3, days_since_sunday=3
+      window_start = Apr 8 - 3 = Apr 5 (Sun)  ✓
+      window_end   = Apr 8         (today)     ✓
 
-    Examples (scheduled run on Sunday Apr 12):
-      isoweekday=7, days_since_sat=1
-      window_end   = Apr 12 - 1 = Apr 11 (Sat)  ✓
-      window_start = Apr 11 - 6 = Apr 5  (Sun)  ✓
-
-    Manual run on Wednesday Apr 15:
-      isoweekday=3, days_since_sat=4
-      window_end   = Apr 15 - 4 = Apr 11 (Sat)  ✓
-      window_start = Apr 11 - 6 = Apr 5  (Sun)  ✓
+    Run on Sunday Apr 5:
+      isoweekday=7, days_since_sunday=0
+      window_start = Apr 5 (today, Sunday — new week starts)  ✓
+      window_end   = Apr 5                                     ✓
     """
     env_ending = os.getenv('REPORT_WEEK_ENDING', '').strip()
     if env_ending:
+        # Explicit override: treat as a full completed week ending on this Saturday
         try:
             window_end   = date.fromisoformat(env_ending)
             window_start = window_end - timedelta(days=6)
@@ -111,13 +112,11 @@ def _amazon_weekly_window(run_date: str | None = None) -> tuple[str, str]:
             log.warning("REPORT_WEEK_ENDING='%s' is not a valid YYYY-MM-DD date — ignoring.", env_ending)
 
     today = date.fromisoformat(run_date) if run_date else date.today()
-    dow   = today.isoweekday()           # Mon=1 … Sat=6, Sun=7
-    days_since_sat = (dow - 6) % 7      # 0 if today is Sat, 1 if Sun, 2 if Mon …
-    if days_since_sat == 0:
-        # Today is Saturday — the current week has not ended yet; report previous week
-        days_since_sat = 7
-    window_end   = today - timedelta(days=days_since_sat)
-    window_start = window_end - timedelta(days=6)
+    dow   = today.isoweekday()          # Mon=1 … Sat=6, Sun=7
+    # Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+    days_since_sunday = dow % 7
+    window_start = today - timedelta(days=days_since_sunday)
+    window_end   = today   # week-to-date through today
     return window_start.isoformat(), window_end.isoformat()
 
 
@@ -280,6 +279,11 @@ class WeeklyTripHistoryReportJob:
                 log.error(err, exc_info=True)
                 self._update_driver_run(drv_run_id, email_status='failed', email_error=err)
                 notifier.notify_failure(report.driver_name, 'pdf', err, dry_run=effective_dry_run)
+                self._update_driver_run(
+                    drv_run_id,
+                    discord_status  = 'sent' if not effective_dry_run else 'skipped',
+                    discord_sent_at = datetime.utcnow(),
+                )
                 failed += 1
                 continue
 
@@ -299,6 +303,11 @@ class WeeklyTripHistoryReportJob:
                 log.error(err, exc_info=True)
                 self._update_driver_run(drv_run_id, email_status='failed', email_error=err)
                 notifier.notify_failure(report.driver_name, 'email', err, dry_run=effective_dry_run)
+                self._update_driver_run(
+                    drv_run_id,
+                    discord_status  = 'sent' if not effective_dry_run else 'skipped',
+                    discord_sent_at = datetime.utcnow(),
+                )
                 failed += 1
                 continue
 

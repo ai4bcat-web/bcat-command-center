@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -133,25 +133,39 @@ class PDFReportGenerator:
         )
         dtype_badge = '● Company Driver' if report.driver_type == 'company' else '● Owner Operator'
 
-        # Build "Sun Apr 5 – Sat Apr 11, 2026" style week label
-        week_label = ''
+        # Build week labels with WTD awareness
+        week_label        = ''
         report_date_label = report.report_date
+        wtd_label         = ''
         if report.window_start and report.window_end:
             try:
-                s = datetime.strptime(report.window_start, '%Y-%m-%d')
-                e = datetime.strptime(report.window_end,   '%Y-%m-%d')
-                week_label = (
-                    f"{s.strftime('%a %b %-d')} – {e.strftime('%a %b %-d, %Y')}"
+                s        = datetime.strptime(report.window_start, '%Y-%m-%d')
+                e        = datetime.strptime(report.window_end,   '%Y-%m-%d')
+                saturday = s + timedelta(days=6)
+                is_wtd   = e < saturday
+
+                # "Reporting Week: Apr 5 – Apr 11, 2026"
+                report_date_label = (
+                    f"Week of {s.strftime('%b %-d')} – {saturday.strftime('%b %-d, %Y')}"
                 )
-                report_date_label = f"Week of {s.strftime('%-d %b')} – {e.strftime('%-d %b %Y')}"
+                if is_wtd:
+                    # "Week-to-Date Through: Apr 8, 2026"
+                    week_label = f"Week-to-Date Through: {e.strftime('%b %-d, %Y')}"
+                    wtd_label  = f"Reporting Week: {s.strftime('%b %-d')} – {saturday.strftime('%b %-d, %Y')}"
+                else:
+                    week_label = (
+                        f"{s.strftime('%a %b %-d')} – {saturday.strftime('%a %b %-d, %Y')}"
+                    )
             except ValueError:
                 week_label = f"{report.window_start} – {report.window_end}"
 
         card_data = [
-            [Paragraph('DRIVER',       driver_label), Paragraph('REPORTING WEEK', driver_label)],
+            [Paragraph('DRIVER',          driver_label),
+             Paragraph('REPORTING WEEK',  driver_label)],
             [Paragraph(f'<b>{report.driver_name}</b>', driver_name_style),
              Paragraph(report_date_label, driver_name_style)],
-            [Paragraph(dtype_badge,    driver_label), Paragraph(week_label, driver_label)],
+            [Paragraph(dtype_badge,       driver_label),
+             Paragraph(week_label,        driver_label)],
         ]
         card_table = Table(card_data, colWidths=[4.5 * inch, 2 * inch])
         card_table.setStyle(TableStyle([

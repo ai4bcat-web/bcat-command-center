@@ -119,13 +119,14 @@ if config.DATABASE_URL:
     migrate.init_app(app, db)
 
     # Register CLI commands
-    from cli import create_admin, seed_roles, create_user, list_users, reset_password, seed_schedule
+    from cli import create_admin, seed_roles, create_user, list_users, reset_password, seed_schedule, fix_driver_types
     app.cli.add_command(create_admin)
     app.cli.add_command(seed_roles)
     app.cli.add_command(create_user)
     app.cli.add_command(list_users)
     app.cli.add_command(reset_password)
     app.cli.add_command(seed_schedule)
+    app.cli.add_command(fix_driver_types)
 
     # ── Auto-migrate schedule columns added after initial deploy ──────────────
     # Runs once at startup; safe to re-run (checks columns before altering).

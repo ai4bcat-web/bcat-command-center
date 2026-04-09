@@ -19,7 +19,7 @@ import json
 import logging
 import os
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 
 log = logging.getLogger(__name__)
 
@@ -31,14 +31,17 @@ def _webhook_url() -> str:
     )
 
 
-def _fmt_week(window_start: str, window_end: str) -> str:
-    """Return "Sun Apr 5 – Sat Apr 11, 2026" style string."""
+def _fmt_week(window_start: str, window_end: str) -> tuple[str, bool]:
+    """Return ("Sun Apr 5 – Sat Apr 11, 2026", is_wtd) tuple."""
     try:
-        s = datetime.strptime(window_start, '%Y-%m-%d')
-        e = datetime.strptime(window_end,   '%Y-%m-%d')
-        return f"{s.strftime('%a %b %-d')} – {e.strftime('%a %b %-d, %Y')}"
+        s        = datetime.strptime(window_start, '%Y-%m-%d')
+        e        = datetime.strptime(window_end,   '%Y-%m-%d')
+        saturday = s + timedelta(days=6)
+        is_wtd   = e < saturday
+        label = f"{s.strftime('%a %b %-d')} – {saturday.strftime('%a %b %-d, %Y')}"
+        return label, is_wtd
     except ValueError:
-        return f"{window_start} – {window_end}"
+        return f"{window_start} – {window_end}", False
 
 
 class DiscordReportNotifier:
@@ -46,13 +49,19 @@ class DiscordReportNotifier:
 
     def notify_success(self, report, dry_run: bool = False) -> None:
         """Post a success message after a driver report email is sent."""
-        week  = _fmt_week(report.window_start, report.window_end)
+        week, is_wtd = _fmt_week(report.window_start, report.window_end)
         dtype = 'Owner Operator' if report.driver_type == 'owner_op' else 'Company Driver'
+
+        try:
+            e = datetime.strptime(report.window_end, '%Y-%m-%d')
+            through_line = f"\n**Week-to-Date Through:** {e.strftime('%b %-d, %Y')}" if is_wtd else ''
+        except ValueError:
+            through_line = ''
 
         msg = (
             f"✅ **Driver Report Sent**\n"
             f"**Driver:** {report.driver_name}  ·  {dtype}\n"
-            f"**Week:** {week}\n"
+            f"**Reporting Week:** {week}{through_line}\n"
             f"**Trips:** {report.trip_count}  |  "
             f"**Revenue:** ${report.total_revenue:,.2f}\n"
             f"📧 Email delivered to recipient."
@@ -89,11 +98,17 @@ class DiscordReportNotifier:
         """Post a job-level summary after all driver reports are processed."""
         status  = '✅' if failed_count == 0 else '⚠️'
         dry_tag = '  *(DRY RUN)*' if dry_run else ''
-        week    = _fmt_week(window_start, window_end)
+        week, is_wtd = _fmt_week(window_start, window_end)
+
+        try:
+            e = datetime.strptime(window_end, '%Y-%m-%d')
+            through_line = f"\n**Week-to-Date Through:** {e.strftime('%b %-d, %Y')}" if is_wtd else ''
+        except ValueError:
+            through_line = ''
 
         msg = (
             f"{status} **Weekly Trip Report Complete**{dry_tag}\n"
-            f"**Week:** {week}\n"
+            f"**Reporting Week:** {week}{through_line}\n"
             f"**Drivers reported:** {driver_count}  |  "
             f"**Trips:** {total_trips}  |  "
             f"**Total revenue:** ${total_revenue:,.2f}\n"

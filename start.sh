@@ -14,8 +14,5 @@ flask create-admin || true
 echo "Fixing DSP driver type classifications..."
 flask fix-driver-types || true
 
-echo "Installing Playwright browser (Chromium)..."
-playwright install chromium --with-deps || true
-
 echo "Starting gunicorn..."
 exec gunicorn wsgi:app -c gunicorn.conf.py

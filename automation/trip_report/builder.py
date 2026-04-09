@@ -102,8 +102,11 @@ class TripReportBuilder:
             key = t.driver.strip().lower()
             trip_map.setdefault(key, []).append(t)
 
+        log.info("Driver keys found in trip data: %s", sorted(trip_map.keys()))
+
         # Determine the canonical driver list
         driver_meta = self._resolve_driver_meta(list(trip_map.keys()))
+        log.info("Driver meta resolved: %s", driver_meta)
 
         reports: list[DriverReport] = []
         for display_name, driver_type in driver_meta.items():
@@ -135,25 +138,41 @@ class TripReportBuilder:
     def _normalise(self, raw: Any) -> TripRecord:
         """Convert an ORM object or dict into a TripRecord."""
         if hasattr(raw, '__dict__'):
-            # SQLAlchemy ORM object — prefer gross_load_revenue (what Amazon paid),
-            # fall back to trip_revenue (driver payout), then bcat_revenue.
+            # Revenue field priority: trip_revenue is the driver-facing pay stored by
+            # the relay ingester. gross_load_revenue may be 0 on older ingestion paths.
+            rev = (
+                float(raw.trip_revenue       or 0) or
+                float(raw.gross_load_revenue or 0) or
+                float(raw.bcat_revenue       or 0)
+            )
+            drv = str(raw.driver or '').strip()
+            log.debug("Trip ORM: driver=%r trip_revenue=%s gross=%s bcat=%s → rev=%s",
+                      drv, raw.trip_revenue, raw.gross_load_revenue, raw.bcat_revenue, rev)
             return TripRecord(
                 trip_id     = str(raw.trip_id    or ''),
                 trip_date   = str(raw.trip_date  or ''),
-                driver      = str(raw.driver     or '').strip(),
+                driver      = drv,
                 driver_type = str(raw.driver_type or 'company'),
-                revenue     = float(raw.gross_load_revenue or raw.trip_revenue or raw.bcat_revenue or 0.0),
+                revenue     = rev,
                 route       = str(raw.route  or ''),
                 stops       = int(raw.stops  or 0),
                 status      = str(raw.status or ''),
             )
         # Dict (from parse_amazon_relay_csv or mock data)
+        rev = (
+            float(raw.get('trip_revenue')       or 0) or
+            float(raw.get('gross_load_revenue') or 0) or
+            float(raw.get('bcat_revenue')       or 0)
+        )
+        drv = str(raw.get('driver', '')).strip()
+        log.debug("Trip dict: driver=%r trip_revenue=%s gross=%s bcat=%s → rev=%s",
+                  drv, raw.get('trip_revenue'), raw.get('gross_load_revenue'), raw.get('bcat_revenue'), rev)
         return TripRecord(
             trip_id     = str(raw.get('trip_id', '')),
             trip_date   = str(raw.get('trip_date', '')),
-            driver      = str(raw.get('driver', '')).strip(),
+            driver      = drv,
             driver_type = str(raw.get('driver_type', 'company')),
-            revenue     = float(raw.get('gross_load_revenue') or raw.get('trip_revenue') or raw.get('bcat_revenue') or 0.0),
+            revenue     = rev,
             route       = str(raw.get('route', '')),
             stops       = int(raw.get('stops') or 0),
             status      = str(raw.get('status', '')),

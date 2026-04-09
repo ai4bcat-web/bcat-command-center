@@ -161,10 +161,11 @@ class WeeklyTripHistoryReportJob:
 
     def run(
         self,
-        dry_run:     bool | None = None,
-        week_ending: str  | None = None,   # Saturday YYYY-MM-DD
-        week_start:  str  | None = None,   # Sunday YYYY-MM-DD  (overrides week_ending)
-        week_end:    str  | None = None,   # Saturday YYYY-MM-DD (overrides week_ending)
+        dry_run:      bool | None = None,
+        week_ending:  str  | None = None,   # Saturday YYYY-MM-DD
+        week_start:   str  | None = None,   # Sunday YYYY-MM-DD  (overrides week_ending)
+        week_end:     str  | None = None,   # Saturday YYYY-MM-DD (overrides week_ending)
+        force_resend: bool | None = None,   # override REPORT_FORCE_RESEND env var
     ) -> bool:
         """Execute the full weekly workflow.
 
@@ -183,7 +184,7 @@ class WeeklyTripHistoryReportJob:
         from automation.trip_report.discord_notifier import DiscordReportNotifier
 
         effective_dry_run = dry_run if dry_run is not None else _bool_env('REPORT_DRY_RUN')
-        force_resend      = _bool_env('REPORT_FORCE_RESEND')
+        force_resend      = force_resend if force_resend is not None else _bool_env('REPORT_FORCE_RESEND')
         report_date       = date.today().isoformat()
 
         window_start, window_end = _window_from_params(week_ending, week_start, week_end)

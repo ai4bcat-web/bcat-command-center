@@ -2241,11 +2241,12 @@ def trigger_report_job():
     import threading
     from automation.trip_report.job import _window_from_params
 
-    data        = request.get_json(silent=True) or {}
-    dry_run     = bool(data.get('dry_run', False))
-    week_ending = data.get('week_ending') or None
-    week_start  = data.get('week_start')  or None
-    week_end    = data.get('week_end')    or None
+    data         = request.get_json(silent=True) or {}
+    dry_run      = bool(data.get('dry_run', False))
+    force_resend = bool(data.get('force_resend', False))
+    week_ending  = data.get('week_ending') or None
+    week_start   = data.get('week_start')  or None
+    week_end     = data.get('week_end')    or None
 
     window_start, window_end = _window_from_params(week_ending, week_start, week_end)
 
@@ -2254,9 +2255,10 @@ def trigger_report_job():
             from automation.trip_report.job import WeeklyTripHistoryReportJob
             job = WeeklyTripHistoryReportJob(app=app)
             job.run(
-                dry_run    = dry_run,
-                week_start = window_start,
-                week_end   = window_end,
+                dry_run      = dry_run,
+                week_start   = window_start,
+                week_end     = window_end,
+                force_resend = force_resend,
             )
         except Exception as exc:
             _log.error("Manual report trigger failed: %s", exc, exc_info=True)
@@ -2270,6 +2272,45 @@ def trigger_report_job():
         'windowEnd':   window_end,
         'dryRun':      dry_run,
     }), 202
+
+
+@app.route('/api/report/debug/trips', methods=['GET'])
+@login_required
+def debug_trip_data():
+    """Return raw AmazonTrip DB rows for debugging the report pipeline.
+
+    Query params:
+        limit     — max rows (default 50)
+        driver    — filter by driver name (case-insensitive substring)
+        date_from — YYYY-MM-DD start filter on trip_date
+        date_to   — YYYY-MM-DD end filter on trip_date
+    """
+    if not _DB_ENABLED:
+        return jsonify({'error': 'DATABASE_URL not set'})
+    from models import AmazonTrip
+    limit     = min(int(request.args.get('limit', 50)), 200)
+    driver_q  = request.args.get('driver', '').strip().lower()
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
+
+    q = AmazonTrip.query
+    if date_from:
+        q = q.filter(AmazonTrip.trip_date >= date_from)
+    if date_to:
+        q = q.filter(AmazonTrip.trip_date <= date_to)
+    q = q.order_by(AmazonTrip.trip_date.desc()).limit(limit)
+    rows = q.all()
+
+    if driver_q:
+        rows = [r for r in rows if driver_q in (r.driver or '').lower()]
+
+    # Summarise distinct drivers in result
+    drivers = sorted({r.driver for r in rows if r.driver})
+    return jsonify({
+        'total_rows': len(rows),
+        'distinct_drivers': drivers,
+        'trips': [r.to_dict() for r in rows],
+    })
 
 
 @app.route('/api/report/runs', methods=['GET'])

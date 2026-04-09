@@ -119,13 +119,13 @@ class DiscordReportNotifier:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _post(self, content: str, dry_run: bool, is_error: bool = False) -> None:
+        """Post to Discord. Always fires — dry_run adds a label but does NOT suppress."""
         url = _webhook_url()
         if not url:
-            log.debug("No Discord webhook configured — skipping notification.")
-            return
-
-        if dry_run:
-            log.info("[DRY RUN] Discord message:\n%s", content)
+            log.warning(
+                "DISCORD_WEBHOOK_URL / REPORT_DISCORD_WEBHOOK_URL not set — "
+                "notification skipped. Set one of these env vars to enable Discord alerts."
+            )
             return
 
         if len(content) > 1950:
@@ -142,4 +142,4 @@ class DiscordReportNotifier:
             urllib.request.urlopen(req, timeout=10)
             log.info("Discord notification posted (%d chars).", len(content))
         except Exception as exc:
-            log.warning("Discord POST failed: %s", exc)
+            log.error("Discord POST failed: %s", exc)

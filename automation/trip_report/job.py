@@ -189,12 +189,17 @@ class WeeklyTripHistoryReportJob:
 
         window_start, window_end = _window_from_params(week_ending, week_start, week_end)
 
+        from automation.trip_report.discord_notifier import _webhook_url
+        discord_url_set = bool(_webhook_url())
+
         log.info("=" * 60)
         log.info("Weekly Trip Report job — %s UTC", datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
         log.info("Report date  : %s", report_date)
         log.info("Window       : %s (Sun) – %s (Sat)", window_start, window_end)
         log.info("Dry run      : %s", effective_dry_run)
         log.info("Force resend : %s", force_resend)
+        log.info("Discord URL  : %s", "SET" if discord_url_set else "NOT SET — notifications will be skipped")
+        log.info("Driver names : %s", os.getenv('REPORT_DRIVER_NAMES', '(from DspDriver table)'))
         log.info("=" * 60)
 
         # ── 1. Create job-run audit record ────────────────────────────────────
@@ -267,9 +272,15 @@ class WeeklyTripHistoryReportJob:
             drv_run_id = self._create_driver_run(job_run_id, report)
 
             log.info(
-                "Processing driver: %s (%d trips, $%.2f)",
-                report.driver_name, report.trip_count, report.total_revenue,
+                "Processing driver: %s | type=%s | trips=%d | revenue=$%.2f",
+                report.driver_name, report.driver_type,
+                report.trip_count, report.total_revenue,
             )
+            for t in report.trips:
+                log.info(
+                    "  trip %s | date=%s | status=%s | revenue=$%.2f",
+                    t.trip_id, t.trip_date, t.status, t.revenue,
+                )
 
             # ── a. Generate PDF ────────────────────────────────────────────
             try:

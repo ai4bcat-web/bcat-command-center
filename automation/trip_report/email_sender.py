@@ -125,7 +125,7 @@ class ReportEmailSender:
         )
         log.info(
             "Email sent → %s | driver: %s | week: %s | trips: %d | revenue: $%.2f",
-            self._recipient, report.driver_name, week_label,
+            self._recipient, report.driver_name, full_week_label,
             report.trip_count, report.total_revenue,
         )
 

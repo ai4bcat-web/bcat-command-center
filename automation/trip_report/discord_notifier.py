@@ -51,6 +51,7 @@ class DiscordReportNotifier:
         """Post a success message after a driver report email is sent."""
         week, is_wtd = _fmt_week(report.window_start, report.window_end)
         dtype = 'Owner Operator' if report.driver_type == 'owner_op' else 'Company Driver'
+        dry_tag = '  *(DRY RUN)*' if dry_run else ''
 
         try:
             e = datetime.strptime(report.window_end, '%Y-%m-%d')
@@ -58,13 +59,14 @@ class DiscordReportNotifier:
         except ValueError:
             through_line = ''
 
+        email_line = '📧 DRY RUN — email not sent.' if dry_run else '📧 Email delivered to recipient.'
         msg = (
-            f"✅ **Driver Report Sent**\n"
+            f"✅ **Driver Report {'Processed' if dry_run else 'Sent'}**{dry_tag}\n"
             f"**Driver:** {report.driver_name}  ·  {dtype}\n"
             f"**Reporting Week:** {week}{through_line}\n"
             f"**Trips:** {report.trip_count}  |  "
             f"**Revenue:** ${report.total_revenue:,.2f}\n"
-            f"📧 Email delivered to recipient."
+            f"{email_line}"
         )
         self._post(msg, dry_run)
 
@@ -77,8 +79,9 @@ class DiscordReportNotifier:
     ) -> None:
         """Post a failure message when a step errors out."""
         short_err = str(error)[:500]
+        dry_tag = '  *(DRY RUN)*' if dry_run else ''
         msg = (
-            f"⚠️ **Driver Report FAILED**\n"
+            f"⚠️ **Driver Report FAILED**{dry_tag}\n"
             f"**Driver:** {driver_name}\n"
             f"**Failed step:** {step}\n"
             f"```\n{short_err}\n```"
@@ -122,9 +125,10 @@ class DiscordReportNotifier:
         """Post to Discord. Always fires — dry_run adds a label but does NOT suppress."""
         url = _webhook_url()
         if not url:
-            log.warning(
-                "DISCORD_WEBHOOK_URL / REPORT_DISCORD_WEBHOOK_URL not set — "
-                "notification skipped. Set one of these env vars to enable Discord alerts."
+            log.error(
+                "DISCORD NOTIFICATION SKIPPED — neither REPORT_DISCORD_WEBHOOK_URL nor "
+                "DISCORD_WEBHOOK_URL is set in environment. "
+                "Add one of these env vars in Railway to enable Discord alerts."
             )
             return
 
@@ -139,7 +143,7 @@ class DiscordReportNotifier:
                 headers = {'Content-Type': 'application/json'},
                 method  = 'POST',
             )
-            urllib.request.urlopen(req, timeout=10)
-            log.info("Discord notification posted (%d chars).", len(content))
+            resp = urllib.request.urlopen(req, timeout=10)
+            log.info("Discord notification posted — HTTP %d (%d chars).", resp.status, len(content))
         except Exception as exc:
             log.error("Discord POST failed: %s", exc)

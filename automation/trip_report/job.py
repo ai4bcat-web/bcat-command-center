@@ -377,15 +377,24 @@ class WeeklyTripHistoryReportJob:
 
     def _load_from_db(self, window_start: str, window_end: str) -> list:
         from models import AmazonTrip, RelayCurrentWeek
+        from sqlalchemy import and_
+        from extensions import db
         with self._app.app_context():
             # Use the relay_current_week table populated by the last relay_cron fetch.
-            # This mirrors exactly what Amazon exported for the current week, with no
-            # date arithmetic that can misalign with Amazon's own week boundaries.
-            current_ids = {r.trip_id for r in RelayCurrentWeek.query.all()}
-            if current_ids:
-                rows = AmazonTrip.query.filter(AmazonTrip.trip_id.in_(current_ids)).all()
-                log.info("Loaded %d trips from relay_current_week (%d IDs tracked).",
-                         len(rows), len(current_ids))
+            # Matches on (trip_id, driver) so duplicate Trip IDs across drivers are
+            # all included — exactly mirroring what Amazon exported for this week.
+            current_pairs = [(r.trip_id, r.driver) for r in RelayCurrentWeek.query.all()]
+            if current_pairs:
+                rows = AmazonTrip.query.filter(
+                    and_(AmazonTrip.trip_id == tid, AmazonTrip.driver == drv)
+                    if len(current_pairs) == 1
+                    else db.or_(*[
+                        and_(AmazonTrip.trip_id == tid, AmazonTrip.driver == drv)
+                        for tid, drv in current_pairs
+                    ])
+                ).all()
+                log.info("Loaded %d trips from relay_current_week (%d pairs tracked).",
+                         len(rows), len(current_pairs))
             else:
                 # Fallback to date range if no current-week data exists yet
                 log.warning("relay_current_week table is empty — falling back to date range %s–%s.",

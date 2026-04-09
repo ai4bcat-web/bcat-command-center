@@ -276,6 +276,33 @@ if config.DATABASE_URL:
 
     _ensure_report_tables()
 
+    def _migrate_amazon_trips_schema():
+        """Drop the old single-column unique constraint on amazon_trips.trip_id and
+        replace it with a composite (trip_id, driver) constraint so duplicate Trip IDs
+        across different drivers are stored correctly."""
+        try:
+            from sqlalchemy import text as _text
+            with app.app_context():
+                with db.engine.begin() as conn:
+                    # Drop the old unique index created by unique=True on trip_id
+                    conn.execute(_text(
+                        "ALTER TABLE amazon_trips DROP CONSTRAINT IF EXISTS amazon_trips_trip_id_key"
+                    ))
+                    # Create composite unique index if it doesn't exist
+                    conn.execute(_text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_amazon_trips_trip_driver "
+                        "ON amazon_trips(trip_id, driver) WHERE trip_id IS NOT NULL"
+                    ))
+                    # Drop and recreate relay_current_week so db.create_all() applies the
+                    # new composite primary key schema (trip_id + driver)
+                    conn.execute(_text("DROP TABLE IF EXISTS relay_current_week"))
+                db.create_all()
+                _log.info("amazon_trips schema migrated to composite (trip_id, driver) key.")
+        except Exception as _me:
+            _log.warning("amazon_trips schema migration skipped: %s", _me)
+
+    _migrate_amazon_trips_schema()
+
 _DB_ENABLED = bool(config.DATABASE_URL)
 
 finance_agent    = FinanceAgent()

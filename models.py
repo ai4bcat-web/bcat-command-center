@@ -237,9 +237,14 @@ class IvanInvoice(db.Model):
 class AmazonTrip(db.Model):
     """Persistent store for Amazon Relay trip rows uploaded via Discord."""
     __tablename__ = 'amazon_trips'
+    __table_args__ = (
+        # Composite unique key: same Trip ID can appear for different drivers
+        # (Amazon shares trip IDs across drivers on shared loads).
+        db.UniqueConstraint('trip_id', 'driver', name='uq_amazon_trips_trip_driver'),
+    )
 
     id                  = db.Column(db.Integer,     primary_key=True)
-    trip_id             = db.Column(db.String(100), unique=True, nullable=True)
+    trip_id             = db.Column(db.String(100), nullable=True)
     trip_date           = db.Column(db.String(20),  default='')
     driver              = db.Column(db.String(200), default='')
     driver_type         = db.Column(db.String(50),  default='company')
@@ -272,20 +277,22 @@ class AmazonTrip(db.Model):
 
 def upsert_amazon_trips(trips: list) -> int:
     """
-    Save a list of trip dicts to the database, upserting by trip_id.
+    Save a list of trip dicts to the database, upserting by (trip_id, driver).
+    The same Trip ID can appear for multiple drivers on shared loads.
     Returns the number of rows inserted/updated.
     Call this inside a Flask app context.
     """
     count = 0
     for t in trips:
-        tid = (t.get('trip_id') or '').strip() or None
+        tid    = (t.get('trip_id') or '').strip() or None
+        driver = (t.get('driver')  or '').strip()
         if tid:
-            row = AmazonTrip.query.filter_by(trip_id=tid).first()
+            row = AmazonTrip.query.filter_by(trip_id=tid, driver=driver).first()
         else:
             row = None
 
         if row is None:
-            row = AmazonTrip(trip_id=tid)
+            row = AmazonTrip(trip_id=tid, driver=driver)
             db.session.add(row)
 
         row.trip_date          = t.get('trip_date')          or ''
@@ -306,34 +313,35 @@ def upsert_amazon_trips(trips: list) -> int:
 
 
 class RelayCurrentWeek(db.Model):
-    """Tracks exactly which trip IDs were in the most recent Amazon Relay weekly download.
-
-    Cleared and repopulated by the relay_cron ingestor on every fetch.
-    The report job queries this table instead of filtering by date, so the
-    report always reflects exactly what Amazon exported for the current week.
+    """Tracks exactly which (trip_id, driver) pairs were in the most recent Amazon Relay
+    weekly download. Cleared and repopulated by the relay_cron ingestor on every fetch.
+    The report job queries this table instead of filtering by date.
     """
     __tablename__ = 'relay_current_week'
+    __table_args__ = (db.PrimaryKeyConstraint('trip_id', 'driver'),)
 
-    trip_id    = db.Column(db.String(100), primary_key=True)
+    trip_id    = db.Column(db.String(100), nullable=False)
+    driver     = db.Column(db.String(200), nullable=False, default='')
     fetched_at = db.Column(db.DateTime,    default=datetime.utcnow)
 
 
-def set_current_week_trips(trip_ids: list[str]) -> int:
-    """Replace the relay_current_week table with the given trip IDs.
+def set_current_week_trips(trip_pairs: list[tuple[str, str]]) -> int:
+    """Replace the relay_current_week table with the given (trip_id, driver) pairs.
 
     Call this inside a Flask app context immediately after fetching the
     current week's CSV from Amazon Relay.
 
-    Returns the number of trip IDs stored.
+    Returns the number of pairs stored.
     """
     db.session.query(RelayCurrentWeek).delete()
     now = datetime.utcnow()
-    for tid in trip_ids:
-        tid = (tid or '').strip()
+    for tid, driver in trip_pairs:
+        tid    = (tid    or '').strip()
+        driver = (driver or '').strip()
         if tid:
-            db.session.add(RelayCurrentWeek(trip_id=tid, fetched_at=now))
+            db.session.add(RelayCurrentWeek(trip_id=tid, driver=driver, fetched_at=now))
     db.session.commit()
-    return len(trip_ids)
+    return len(trip_pairs)
 
 
 class IvanScheduleEntry(db.Model):

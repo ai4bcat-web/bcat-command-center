@@ -234,18 +234,19 @@ def ingest_relay_csv(csv_path: Path) -> IngestResult:
             from models import upsert_amazon_trips, set_current_week_trips
             from dashboard import app as _app
 
-            # Read trip IDs from the CURRENT DOWNLOAD (not cumulative) — these are
-            # exactly the trips Amazon exported for this week. Used by the report job
-            # to filter without date arithmetic.
+            # Read (trip_id, driver) pairs from the CURRENT DOWNLOAD (not cumulative).
+            # These are exactly the trips Amazon exported for this week. Used by the
+            # report job to filter without date arithmetic.
             with open(csv_path, newline="", encoding="utf-8-sig") as f:
                 import csv as _csv
                 reader = _csv.DictReader(f)
-                current_week_ids = [
-                    (row.get('Trip ID') or row.get('trip_id') or '').strip()
-                    for row in reader
-                ]
-                current_week_ids = [tid for tid in current_week_ids if tid]
-            log.info("Current week download contains %d trip IDs.", len(current_week_ids))
+                current_week_pairs = []
+                for row in reader:
+                    tid    = (row.get('Trip ID') or row.get('trip_id') or '').strip()
+                    driver = (row.get('Driver Name') or row.get('driver_name') or row.get('driver') or '').strip()
+                    if tid:
+                        current_week_pairs.append((tid, driver))
+            log.info("Current week download contains %d (trip_id, driver) pairs.", len(current_week_pairs))
 
             all_trips = parse_amazon_relay_csv(str(AMAZON_RELAY_DEST))
             log.info("parse_amazon_relay_csv returned %d qualifying trips from cumulative file.", len(all_trips))
@@ -265,7 +266,7 @@ def ingest_relay_csv(csv_path: Path) -> IngestResult:
 
             with _app.app_context():
                 db_count = upsert_amazon_trips(all_trips)
-                cw_count = set_current_week_trips(current_week_ids)
+                cw_count = set_current_week_trips(current_week_pairs)
             log.info("DB upsert complete: %d rows written, %d marked as current week.", db_count, cw_count)
 
         except Exception as e:

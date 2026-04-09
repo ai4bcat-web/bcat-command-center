@@ -389,6 +389,14 @@ class WeeklyTripHistoryReportJob:
                 log.info("Loaded %d trips from relay_current_week (%d load_ids tracked).",
                          len(rows), len(current_ids))
 
+                # Date guard: exclude trips whose trip_date falls before the window.
+                # Amazon's weekly export can include trips from the tail of the prior week.
+                before = len(rows)
+                rows = [r for r in rows if not r.trip_date or r.trip_date >= window_start]
+                if len(rows) < before:
+                    log.info("Date guard removed %d trip(s) with trip_date < %s.",
+                             before - len(rows), window_start)
+
                 # Reconciliation log: per-driver breakdown
                 by_driver: dict[str, list] = {}
                 for r in rows:

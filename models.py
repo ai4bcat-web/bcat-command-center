@@ -305,6 +305,37 @@ def upsert_amazon_trips(trips: list) -> int:
     return count
 
 
+class RelayCurrentWeek(db.Model):
+    """Tracks exactly which trip IDs were in the most recent Amazon Relay weekly download.
+
+    Cleared and repopulated by the relay_cron ingestor on every fetch.
+    The report job queries this table instead of filtering by date, so the
+    report always reflects exactly what Amazon exported for the current week.
+    """
+    __tablename__ = 'relay_current_week'
+
+    trip_id    = db.Column(db.String(100), primary_key=True)
+    fetched_at = db.Column(db.DateTime,    default=datetime.utcnow)
+
+
+def set_current_week_trips(trip_ids: list[str]) -> int:
+    """Replace the relay_current_week table with the given trip IDs.
+
+    Call this inside a Flask app context immediately after fetching the
+    current week's CSV from Amazon Relay.
+
+    Returns the number of trip IDs stored.
+    """
+    db.session.query(RelayCurrentWeek).delete()
+    now = datetime.utcnow()
+    for tid in trip_ids:
+        tid = (tid or '').strip()
+        if tid:
+            db.session.add(RelayCurrentWeek(trip_id=tid, fetched_at=now))
+    db.session.commit()
+    return len(trip_ids)
+
+
 class IvanScheduleEntry(db.Model):
     """
     One dispatched load on one day in the weekly driver schedule board.

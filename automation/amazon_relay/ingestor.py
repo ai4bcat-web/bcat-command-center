@@ -231,8 +231,21 @@ def ingest_relay_csv(csv_path: Path) -> IngestResult:
         log.info("Writing trips to database...")
         try:
             from finance_agent import parse_amazon_relay_csv, is_qualifying_trip
-            from models import upsert_amazon_trips
+            from models import upsert_amazon_trips, set_current_week_trips
             from dashboard import app as _app
+
+            # Read trip IDs from the CURRENT DOWNLOAD (not cumulative) — these are
+            # exactly the trips Amazon exported for this week. Used by the report job
+            # to filter without date arithmetic.
+            with open(csv_path, newline="", encoding="utf-8-sig") as f:
+                import csv as _csv
+                reader = _csv.DictReader(f)
+                current_week_ids = [
+                    (row.get('Trip ID') or row.get('trip_id') or '').strip()
+                    for row in reader
+                ]
+                current_week_ids = [tid for tid in current_week_ids if tid]
+            log.info("Current week download contains %d trip IDs.", len(current_week_ids))
 
             all_trips = parse_amazon_relay_csv(str(AMAZON_RELAY_DEST))
             log.info("parse_amazon_relay_csv returned %d qualifying trips from cumulative file.", len(all_trips))
@@ -252,7 +265,8 @@ def ingest_relay_csv(csv_path: Path) -> IngestResult:
 
             with _app.app_context():
                 db_count = upsert_amazon_trips(all_trips)
-            log.info("DB upsert complete: %d rows written.", db_count)
+                cw_count = set_current_week_trips(current_week_ids)
+            log.info("DB upsert complete: %d rows written, %d marked as current week.", db_count, cw_count)
 
         except Exception as e:
             log.error("DB write failed: %s", e, exc_info=True)

@@ -376,27 +376,27 @@ class WeeklyTripHistoryReportJob:
         return self._load_from_csv(window_start, window_end)
 
     def _load_from_db(self, window_start: str, window_end: str) -> list:
-        from models import AmazonTrip
-        # Expand query 1 day before window_start to capture late Saturday trips
-        # that Amazon includes in the Sunday week (UTC boundary crossings).
-        query_start = (date.fromisoformat(window_start) - timedelta(days=1)).isoformat()
+        from models import AmazonTrip, RelayCurrentWeek
         with self._app.app_context():
-            rows = (
-                AmazonTrip.query
-                .filter(AmazonTrip.trip_date >= query_start)
-                .filter(AmazonTrip.trip_date <= window_end)
-                .all()
-            )
-            log.info("DB query returned %d rows (window %s–%s, query from %s).",
-                     len(rows), window_start, window_end, query_start)
-            # Log boundary-day trips (the day before window_start) separately
-            boundary_rows = [r for r in rows if str(r.trip_date) == query_start]
-            if boundary_rows:
-                log.info("Boundary-day trips on %s (%d):", query_start, len(boundary_rows))
-                for r in boundary_rows:
-                    log.info("  [boundary] trip %s | driver=%s | status=%s | revenue=$%.2f",
-                             r.trip_id, r.driver, r.status,
-                             float(r.trip_revenue or 0))
+            # Use the relay_current_week table populated by the last relay_cron fetch.
+            # This mirrors exactly what Amazon exported for the current week, with no
+            # date arithmetic that can misalign with Amazon's own week boundaries.
+            current_ids = {r.trip_id for r in RelayCurrentWeek.query.all()}
+            if current_ids:
+                rows = AmazonTrip.query.filter(AmazonTrip.trip_id.in_(current_ids)).all()
+                log.info("Loaded %d trips from relay_current_week (%d IDs tracked).",
+                         len(rows), len(current_ids))
+            else:
+                # Fallback to date range if no current-week data exists yet
+                log.warning("relay_current_week table is empty — falling back to date range %s–%s.",
+                            window_start, window_end)
+                rows = (
+                    AmazonTrip.query
+                    .filter(AmazonTrip.trip_date >= window_start)
+                    .filter(AmazonTrip.trip_date <= window_end)
+                    .all()
+                )
+                log.info("Date-range fallback returned %d rows.", len(rows))
             return [r.to_dict() for r in rows]
 
     def _load_from_csv(self, window_start: str, window_end: str) -> list:

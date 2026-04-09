@@ -4,6 +4,14 @@ import threading
 import logging
 from pathlib import Path
 
+# ── Logging — configure before any imports so all loggers inherit INFO level ──
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+)
+
 # ── Ensure project root is on sys.path so all agent/bot imports resolve ───────
 _PROJECT_ROOT = Path(__file__).resolve().parent
 if str(_PROJECT_ROOT) not in sys.path:

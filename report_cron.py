@@ -1,22 +1,26 @@
 """
-report_cron.py — Railway cron entry point for the weekly Amazon trip report.
+report_cron.py — Railway cron entry point for the daily Amazon trip report.
 
 Runs once and exits.  Railway's cron service calls this on schedule.
 
 Reporting window
 ────────────────
-Each report covers the most recently completed Amazon weekly window: Sunday–Saturday.
+Each report covers the current Amazon week-to-date: the most recent Sunday through today.
+Drivers receive a fresh report every morning showing all trips completed so far this week.
 
-The job runs on Sunday morning, reporting on the week that ended the day before (Saturday).
+The nightly relay fetch (relay_cron, 04:00 UTC) runs first so data is always fresh
+by the time this job fires at 14:00 UTC.
 
-Example: job fires Sunday Apr 12 → reports on Apr 5 (Sun) through Apr 11 (Sat).
+Example: job fires Wednesday Apr 9 → reports on Apr 5 (Sun) through Apr 9 (today).
 
-Railway cron schedule:  0 14 * * 0
+Railway cron schedule:  0 14 * * *
 Timezone note:          Railway cron runs in UTC.
                         8:00 AM CST (UTC-6) = 14:00 UTC
                         8:00 AM CDT (UTC-5) = 13:00 UTC
-                        Use 0 14 * * 0 year-round (1h drift in summer is acceptable).
-                        The "0" at the end means Sunday only (not every day).
+                        Use 0 14 * * * year-round (1h drift in summer is acceptable).
+
+Required env vars on the report_cron service:
+    REPORT_FORCE_RESEND=true   — always resend (daily updates override idempotency)
 
 Start command (Railway cron service):
     bash start_report_cron.sh

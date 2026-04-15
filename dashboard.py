@@ -337,6 +337,24 @@ if config.DATABASE_URL:
 
     _migrate_amazon_trips_schema()
 
+    def _ensure_sheets_tables():
+        """Create gmail_trip_emails, relay_sheet_sync_runs, driver_sheet_sync_results tables."""
+        try:
+            from sqlalchemy import inspect as _si2
+            with app.app_context():
+                inspector2 = _si2(db.engine)
+                missing = [
+                    t for t in ('gmail_trip_emails', 'relay_sheet_sync_runs', 'driver_sheet_sync_results')
+                    if not inspector2.has_table(t)
+                ]
+                if missing:
+                    db.create_all()
+                    _log.info("Created tables: %s", missing)
+        except Exception as _e2:
+            _log.warning("Sheets tables init skipped: %s", _e2)
+
+    _ensure_sheets_tables()
+
 _DB_ENABLED = bool(config.DATABASE_URL)
 
 finance_agent    = FinanceAgent()
@@ -2395,6 +2413,84 @@ def trigger_relay_fetch():
         'status':      'triggered',
         'windowStart': window_start,
         'windowEnd':   window_end,
+    }), 202
+
+
+@app.route('/api/gmail/trigger', methods=['POST'])
+@csrf.exempt
+@login_required
+def trigger_gmail_ingest():
+    """Manually trigger Gmail trip booking email ingestion.
+
+    Body (JSON, all optional):
+        lookback_days  int   — days of Gmail history to search (default: 7)
+        dry_run        bool  — parse without writing to DB or Sheets (default: false)
+
+    Returns 202 with {status, lookbackDays, dryRun}
+    """
+    import threading
+    data          = request.get_json(silent=True) or {}
+    lookback_days = int(data.get('lookback_days', 7))
+    dry_run       = bool(data.get('dry_run', False))
+
+    def _run():
+        try:
+            from automation.gmail_ingestor.ingestor import GmailTripEmailIngestor
+            ingestor = GmailTripEmailIngestor(app=app, dry_run=dry_run)
+            result   = ingestor.run(lookback_days=lookback_days)
+            _log.info("Manual Gmail ingest complete | %s", result.summary())
+        except Exception as exc:
+            _log.error("Manual Gmail ingest failed: %s", exc, exc_info=True)
+
+    t = threading.Thread(target=_run, daemon=True, name='gmail-ingest-manual')
+    t.start()
+
+    return jsonify({
+        'status':       'triggered',
+        'lookbackDays': lookback_days,
+        'dryRun':       dry_run,
+    }), 202
+
+
+@app.route('/api/relay-sheets/trigger', methods=['POST'])
+@csrf.exempt
+@login_required
+def trigger_relay_sheets_sync():
+    """Manually trigger Relay → Google Sheets sync.
+
+    Body (JSON, all optional):
+        window_start  str   — YYYY-MM-DD Sunday (default: auto current week)
+        window_end    str   — YYYY-MM-DD (default: today)
+        dry_run       bool  — log without writing to Sheets (default: false)
+
+    Returns 202 with {status, windowStart, windowEnd, dryRun}
+    """
+    import threading
+    from automation.relay_sheets_sync.syncer import _resolve_window
+    data         = request.get_json(silent=True) or {}
+    window_start = data.get('window_start') or None
+    window_end   = data.get('window_end')   or None
+    dry_run      = bool(data.get('dry_run', False))
+
+    ws, we = _resolve_window(window_start, window_end)
+
+    def _run():
+        try:
+            from automation.relay_sheets_sync.syncer import RelaySheetsSyncer
+            syncer = RelaySheetsSyncer(app=app)
+            result = syncer.run(window_start=ws, window_end=we, dry_run=dry_run)
+            _log.info("Manual relay sheets sync complete | %s", result.summary())
+        except Exception as exc:
+            _log.error("Manual relay sheets sync failed: %s", exc, exc_info=True)
+
+    t = threading.Thread(target=_run, daemon=True, name='relay-sheets-manual')
+    t.start()
+
+    return jsonify({
+        'status':      'triggered',
+        'windowStart': ws,
+        'windowEnd':   we,
+        'dryRun':      dry_run,
     }), 202
 
 

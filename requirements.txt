@@ -47,3 +47,6 @@ playwright>=1.40.0
 
 # PDF report generation (daily trip reports)
 reportlab>=4.0.0
+
+# Google Sheets integration (driver sheets + master payout sheet)
+gspread>=6.0.0

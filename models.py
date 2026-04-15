@@ -596,6 +596,131 @@ class ScheduleAuditLog(db.Model):
         }
 
 
+# ── Gmail Trip Email Ingestion ─────────────────────────────────────────────────
+
+class GmailTripEmail(db.Model):
+    """Record of each trip booking email ingested from Gmail.
+
+    message_id is the Gmail message ID — used as the idempotency key so the
+    same email is never imported twice.
+    """
+    __tablename__ = 'gmail_trip_emails'
+
+    id                  = db.Column(db.Integer,     primary_key=True)
+    message_id          = db.Column(db.String(200), unique=True, nullable=False, index=True)
+    thread_id           = db.Column(db.String(200), default='')
+    subject             = db.Column(db.String(500), default='')
+    received_at         = db.Column(db.DateTime,    nullable=True)
+    trip_id             = db.Column(db.String(100), default='', index=True)
+    estimated_payout    = db.Column(db.Float,       nullable=True)
+    origin              = db.Column(db.String(200), default='')
+    destination         = db.Column(db.String(200), default='')
+    pickup_dt           = db.Column(db.String(100), default='')
+    dropoff_dt          = db.Column(db.String(100), default='')
+    driver              = db.Column(db.String(200), default='')
+    rate                = db.Column(db.String(100), default='')
+    miles               = db.Column(db.String(50),  default='')
+    raw_body_snippet    = db.Column(db.Text,        default='')
+    parse_confidence    = db.Column(db.String(20),  default='high')   # high|partial|failed
+    parse_notes         = db.Column(db.Text,        default='')
+    import_status       = db.Column(db.String(30),  default='pending')  # pending|written|db_only|parse_failed|sheet_failed
+    sheet_row           = db.Column(db.Integer,     nullable=True)
+    imported_at         = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id':               self.id,
+            'messageId':        self.message_id,
+            'threadId':         self.thread_id,
+            'subject':          self.subject,
+            'receivedAt':       self.received_at.isoformat() if self.received_at else '',
+            'tripId':           self.trip_id,
+            'estimatedPayout':  self.estimated_payout,
+            'origin':           self.origin,
+            'destination':      self.destination,
+            'pickupDt':         self.pickup_dt,
+            'dropoffDt':        self.dropoff_dt,
+            'driver':           self.driver,
+            'rate':             self.rate,
+            'miles':            self.miles,
+            'parseConfidence':  self.parse_confidence,
+            'parseNotes':       self.parse_notes,
+            'importStatus':     self.import_status,
+            'sheetRow':         self.sheet_row,
+            'importedAt':       self.imported_at.isoformat() if self.imported_at else '',
+        }
+
+
+# ── Relay → Sheets Sync Logs ───────────────────────────────────────────────────
+
+class RelaySheetSyncRun(db.Model):
+    """Audit record for each relay → Google Sheets sync run."""
+    __tablename__ = 'relay_sheet_sync_runs'
+
+    id              = db.Column(db.Integer,  primary_key=True)
+    started_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    completed_at    = db.Column(db.DateTime, nullable=True)
+    status          = db.Column(db.String(30), default='running')   # running|completed|completed_with_errors|failed
+    window_start    = db.Column(db.String(10), default='')
+    window_end      = db.Column(db.String(10), default='')
+    rows_found      = db.Column(db.Integer,  default=0)
+    rows_written    = db.Column(db.Integer,  default=0)
+    rows_updated    = db.Column(db.Integer,  default=0)
+    unmatched_count = db.Column(db.Integer,  default=0)
+    error           = db.Column(db.Text,     default='')
+
+    driver_results = db.relationship(
+        'DriverSheetSyncResult', backref='sync_run',
+        lazy='dynamic', cascade='all, delete-orphan',
+    )
+
+    def to_dict(self):
+        return {
+            'id':             self.id,
+            'startedAt':      self.started_at.isoformat()   if self.started_at   else '',
+            'completedAt':    self.completed_at.isoformat() if self.completed_at else '',
+            'status':         self.status,
+            'windowStart':    self.window_start,
+            'windowEnd':      self.window_end,
+            'rowsFound':      self.rows_found,
+            'rowsWritten':    self.rows_written,
+            'rowsUpdated':    self.rows_updated,
+            'unmatchedCount': self.unmatched_count,
+            'error':          self.error or '',
+        }
+
+
+class DriverSheetSyncResult(db.Model):
+    """Per-driver sync result within a RelaySheetSyncRun."""
+    __tablename__ = 'driver_sheet_sync_results'
+
+    id                  = db.Column(db.Integer, primary_key=True)
+    sync_run_id         = db.Column(db.Integer, db.ForeignKey('relay_sheet_sync_runs.id'), nullable=False)
+    driver              = db.Column(db.String(200), nullable=False)
+    week_tab            = db.Column(db.String(100), default='')
+    spreadsheet_id      = db.Column(db.String(200), default='')
+    rows_written        = db.Column(db.Integer,     default=0)
+    rows_updated        = db.Column(db.Integer,     default=0)
+    unmatched_trip_ids  = db.Column(db.Text,        default='[]')   # JSON list
+    synced_at           = db.Column(db.DateTime,    default=datetime.utcnow)
+    error               = db.Column(db.Text,        default='')
+
+    def to_dict(self):
+        import json
+        return {
+            'id':                self.id,
+            'syncRunId':         self.sync_run_id,
+            'driver':            self.driver,
+            'weekTab':           self.week_tab,
+            'spreadsheetId':     self.spreadsheet_id,
+            'rowsWritten':       self.rows_written,
+            'rowsUpdated':       self.rows_updated,
+            'unmatchedTripIds':  json.loads(self.unmatched_trip_ids or '[]'),
+            'syncedAt':          self.synced_at.isoformat() if self.synced_at else '',
+            'error':             self.error or '',
+        }
+
+
 class RelaySession(db.Model):
     """Stores Amazon Relay browser cookies for headless session reuse on Railway."""
     __tablename__ = 'relay_sessions'

@@ -107,7 +107,7 @@ class RelaySheetsSyncer:
 
         # ── 3. Load payout map from Master Sheet ───────────────────────────────
         payout_map: dict[str, float] = {}
-        sheets_enabled = bool(os.getenv("SHEETS_SERVICE_ACCOUNT_JSON", "").strip())
+        sheets_enabled = bool(os.getenv("SHEETS_TOKEN_JSON", "").strip()) or (PROJECT_ROOT / "sheets_token.json").exists()
         if sheets_enabled:
             try:
                 from automation.sheets.master_sheet import MasterSheetWriter
@@ -119,7 +119,7 @@ class RelaySheetsSyncer:
                 log.warning("Master sheet payout load failed — payouts will be blank: %s", e)
                 result.errors.append(f"Payout load: {e}")
         else:
-            log.info("SHEETS_SERVICE_ACCOUNT_JSON not set — payout lookup skipped.")
+            log.info("SHEETS_TOKEN_JSON not set — payout lookup skipped.")
 
         # ── 4. Group trips by driver and week ──────────────────────────────────
         driver_weeks = _group_by_driver_week(trips)

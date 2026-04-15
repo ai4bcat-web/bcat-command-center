@@ -84,10 +84,10 @@ def main() -> int:
     log.info("DRY_RUN        : %s", dry_run)
     log.info("WINDOW         : %s – %s", window_start or "(auto)", window_end or "(auto)")
     log.info("DB set         : %s", bool(os.getenv("DATABASE_URL")))
-    log.info("Sheets enabled : %s", bool(os.getenv("SHEETS_SERVICE_ACCOUNT_JSON")))
+    log.info("Sheets token   : %s", bool(os.getenv("SHEETS_TOKEN_JSON")))
 
-    if not os.getenv("SHEETS_SERVICE_ACCOUNT_JSON"):
-        log.error("SHEETS_SERVICE_ACCOUNT_JSON not set — cannot write to Google Sheets. Exiting.")
+    if not os.getenv("SHEETS_TOKEN_JSON") and not (Path(__file__).parent / "sheets_token.json").exists():
+        log.error("SHEETS_TOKEN_JSON not set and sheets_token.json not found. Run locally first to authorize.")
         return 1
 
     app = _init_app()

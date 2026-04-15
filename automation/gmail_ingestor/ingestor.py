@@ -122,7 +122,7 @@ class GmailTripEmailIngestor:
 
         # ── 4. Bootstrap master sheet writer ──────────────────────────────────
         master_writer = None
-        sheets_enabled = bool(os.getenv("SHEETS_SERVICE_ACCOUNT_JSON", "").strip())
+        sheets_enabled = bool(os.getenv("SHEETS_TOKEN_JSON", "").strip()) or (PROJECT_ROOT / "sheets_token.json").exists()
         if sheets_enabled and not self._dry_run:
             try:
                 from automation.sheets.master_sheet import MasterSheetWriter

@@ -2373,6 +2373,49 @@ def trigger_report_job():
     }), 202
 
 
+@app.route('/api/relay/upload-csv', methods=['POST'])
+@csrf.exempt
+@login_required
+def upload_relay_csv():
+    """Upload an Amazon Relay CSV export to ingest trips without automated fetch.
+
+    Accepts a multipart/form-data POST with a 'file' field containing the CSV.
+    Validates, merges, writes to DB, and updates relay_current_week.
+
+    Returns 200 with {success, rowsNew, rowsKept, rowsTotal, dbCount, error}.
+    """
+    import tempfile
+    from automation.amazon_relay.ingestor import ingest_relay_csv
+
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file field in request'}), 400
+
+    f = request.files['file']
+    if not f.filename:
+        return jsonify({'success': False, 'error': 'Empty filename'}), 400
+
+    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        f.save(tmp_path)
+
+    try:
+        result = ingest_relay_csv(tmp_path)
+    finally:
+        try:
+            tmp_path.unlink()
+        except Exception:
+            pass
+
+    return jsonify({
+        'success':   result.success,
+        'rowsNew':   result.rows_new,
+        'rowsKept':  result.rows_kept,
+        'rowsTotal': result.rows_total,
+        'dbCount':   result.db_count,
+        'error':     result.error,
+    }), 200 if result.success else 422
+
+
 @app.route('/api/relay/trigger', methods=['POST'])
 @csrf.exempt
 @login_required

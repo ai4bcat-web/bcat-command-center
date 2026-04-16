@@ -87,7 +87,7 @@ def week_tab_title(week_start: str) -> str:
     """
     try:
         start = date.fromisoformat(week_start)
-        end   = start + timedelta(days=5)
+        end   = start + timedelta(days=6)   # Sunday + 6 = Saturday (7-day week)
         if start.year == end.year:
             if start.month == end.month:
                 return f"{start.strftime('%b %-d')} – {end.strftime('%-d')}"

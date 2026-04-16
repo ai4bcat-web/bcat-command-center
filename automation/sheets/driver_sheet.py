@@ -65,12 +65,12 @@ def week_tab_title(week_start: str) -> str:
     """
     Return the tab title for a given week start date (YYYY-MM-DD Sunday).
 
-    Format: "Apr 5 – Apr 10"
-    The week runs Sunday → Friday (Amazon DSP week convention).
+    Format: "Mar 8 – 14"  (7-day period, Sunday → Saturday)
+    Cross-month example: "Mar 29 – Apr 4"
     """
     try:
         start = date.fromisoformat(week_start)
-        end   = start + timedelta(days=5)   # Sunday + 5 = Friday
+        end   = start + timedelta(days=6)   # Sunday + 6 = Saturday (7-day week)
         if start.year == end.year:
             if start.month == end.month:
                 return f"{start.strftime('%b %-d')} – {end.strftime('%-d')}"

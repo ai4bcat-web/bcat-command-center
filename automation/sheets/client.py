@@ -157,6 +157,14 @@ def ensure_worksheet(
     if headers:
         ws.append_row(headers, value_input_option="USER_ENTERED")
 
+    # Move new weekly tab to position 0 (leftmost = newest first)
+    try:
+        all_sheets = spreadsheet.worksheets()
+        reordered  = [ws] + [s for s in all_sheets if s.id != ws.id]
+        spreadsheet.reorder_worksheets(reordered)
+    except Exception as e:
+        log.debug("Could not reorder worksheets after create: %s", e)
+
     return ws
 
 

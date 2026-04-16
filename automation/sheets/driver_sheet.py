@@ -134,15 +134,19 @@ class DriverSheetWriter:
         ss     = client.open_by_key(ss_id)
         ws     = self._ensure_ws(ss, tab_title, DRIVER_HEADERS)
 
-        # Load existing rows so we can dedup by trip_id
+        # Load existing rows once — build lookup maps to avoid repeated reads
         existing = ws.get_all_values()
         existing_trip_ids: set[str] = set()
+        existing_row_nums: dict[str, int] = {}   # trip_id_upper -> 1-based row num
         if len(existing) > 1:
-            for row in existing[1:]:
+            for idx, row in enumerate(existing[1:], start=2):
                 if row and row[0]:
-                    existing_trip_ids.add(row[0].strip().upper())
+                    tid_upper = row[0].strip().upper()
+                    existing_trip_ids.add(tid_upper)
+                    existing_row_nums[tid_upper] = idx
 
         rows_to_append  = []
+        rows_to_update  = []   # list of (row_num, row_data) — no extra reads needed
         rows_updated    = 0
         unmatched       = []
         matched_count   = 0
@@ -161,13 +165,21 @@ class DriverSheetWriter:
             row = _build_driver_row(trip, week_start, tab_title, payout)
 
             if trip_id_upper in existing_trip_ids:
-                # Update existing row
-                _update_row_by_trip_id(ws, trip_id_upper, row)
+                row_num = existing_row_nums.get(trip_id_upper)
+                if row_num:
+                    rows_to_update.append((row_num, row))
                 rows_updated += 1
             else:
                 rows_to_append.append(row)
 
-        # Batch append new rows
+        # Batch update existing rows — one API call for all updates
+        if rows_to_update:
+            ws.batch_update(
+                [{"range": f"A{rn}:M{rn}", "values": [rd]} for rn, rd in rows_to_update],
+                value_input_option="USER_ENTERED",
+            )
+
+        # Batch append new rows — one API call
         if rows_to_append:
             ws.append_rows(rows_to_append, value_input_option="USER_ENTERED")
 

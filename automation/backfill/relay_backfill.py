@@ -24,6 +24,7 @@ Public API:
 
 import logging
 import sys
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -158,6 +159,7 @@ class RelayBackfill:
                 continue
 
             log.info("Syncing driver=%r week=%s trips=%d", driver, week_start, len(week_trips))
+            time.sleep(5)   # stay under 100 reads/min quota
 
             try:
                 drv_result = writer.write_driver_week(

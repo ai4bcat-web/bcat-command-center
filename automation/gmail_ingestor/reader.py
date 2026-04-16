@@ -109,7 +109,7 @@ def build_gmail_reader_service():
 
 def search_trip_booking_emails(
     service,
-    max_results: int = 200,
+    max_results: int = 2000,
     after_date: datetime | None = None,
 ) -> list[dict]:
     """
@@ -124,10 +124,12 @@ def search_trip_booking_emails(
     Returns:
         List of message stubs: [{"id": "...", "threadId": "..."}, ...]
     """
-    after = after_date or (datetime.utcnow() - timedelta(days=30))
-    # Gmail uses epoch seconds for the 'after:' operator
-    after_epoch = int(after.timestamp())
-    query = f"{TRIP_BOOKING_QUERY} after:{after_epoch}"
+    if after_date is not None:
+        # Gmail uses epoch seconds for the 'after:' operator
+        after_epoch = int(after_date.timestamp())
+        query = f"{TRIP_BOOKING_QUERY} after:{after_epoch}"
+    else:
+        query = TRIP_BOOKING_QUERY  # no date filter — search all history
 
     log.info("Searching Gmail with query: %s", query)
 

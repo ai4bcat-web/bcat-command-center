@@ -338,13 +338,16 @@ if config.DATABASE_URL:
     _migrate_amazon_trips_schema()
 
     def _ensure_sheets_tables():
-        """Create gmail_trip_emails, relay_sheet_sync_runs, driver_sheet_sync_results tables."""
+        """Create gmail_trip_emails, relay_sheet_sync_runs, driver_sheet_sync_results, backfill_progress tables."""
         try:
             from sqlalchemy import inspect as _si2
             with app.app_context():
                 inspector2 = _si2(db.engine)
                 missing = [
-                    t for t in ('gmail_trip_emails', 'relay_sheet_sync_runs', 'driver_sheet_sync_results')
+                    t for t in (
+                        'gmail_trip_emails', 'relay_sheet_sync_runs',
+                        'driver_sheet_sync_results', 'backfill_progress',
+                    )
                     if not inspector2.has_table(t)
                 ]
                 if missing:
@@ -2535,6 +2538,148 @@ def trigger_relay_sheets_sync():
         'windowEnd':   we,
         'dryRun':      dry_run,
     }), 202
+
+
+@app.route('/api/backfill/gmail', methods=['POST'])
+@csrf.exempt
+@login_required
+def backfill_gmail():
+    """Run historical Gmail backfill into Master Sheet weekly tabs.
+
+    Body (JSON, all optional):
+        dry_run     bool  — parse but do not write (default: false)
+        force       bool  — reprocess already-completed weeks (default: false)
+
+    Returns 202 immediately; backfill runs in background thread.
+    Watch logs for progress.
+    """
+    import threading
+    data    = request.get_json(silent=True) or {}
+    dry_run = bool(data.get("dry_run", False))
+    force   = bool(data.get("force", False))
+
+    def _run():
+        try:
+            from automation.backfill.gmail_backfill import GmailBackfill
+            bf     = GmailBackfill(app=app)
+            result = bf.run(dry_run=dry_run, force=force)
+            _log.info("Gmail backfill complete | %s", result.summary())
+        except Exception as exc:
+            _log.error("Gmail backfill failed: %s", exc, exc_info=True)
+
+    threading.Thread(target=_run, daemon=True, name="gmail-backfill").start()
+    return jsonify({"status": "triggered", "dryRun": dry_run, "force": force}), 202
+
+
+@app.route('/api/backfill/relay', methods=['POST'])
+@csrf.exempt
+@login_required
+def backfill_relay():
+    """Run historical Relay backfill into driver sheet weekly tabs.
+
+    Body (JSON, all optional):
+        dry_run     bool  — log without writing (default: false)
+        force       bool  — reprocess already-completed weeks (default: false)
+        driver      str   — limit to one driver name (default: all)
+        week_start  str   — YYYY-MM-DD, limit to one week (default: all)
+
+    Returns 202 immediately; backfill runs in background thread.
+    """
+    import threading
+    data        = request.get_json(silent=True) or {}
+    dry_run     = bool(data.get("dry_run", False))
+    force       = bool(data.get("force", False))
+    driver      = (data.get("driver") or "").strip() or None
+    week_start  = (data.get("week_start") or "").strip() or None
+
+    def _run():
+        try:
+            from automation.backfill.relay_backfill import RelayBackfill
+            bf = RelayBackfill(app=app)
+            if week_start:
+                result = bf.run_week(week_start=week_start, dry_run=dry_run)
+                _log.info("Relay backfill (week %s) complete | %s", week_start, result)
+            elif driver:
+                result = bf.run_driver(driver_name=driver, dry_run=dry_run, force=force)
+                _log.info("Relay backfill (driver %s) complete | %s", driver, result)
+            else:
+                result = bf.run(dry_run=dry_run, force=force)
+                _log.info("Relay backfill complete | %s", result.summary())
+        except Exception as exc:
+            _log.error("Relay backfill failed: %s", exc, exc_info=True)
+
+    threading.Thread(target=_run, daemon=True, name="relay-backfill").start()
+    return jsonify({
+        "status":     "triggered",
+        "dryRun":     dry_run,
+        "force":      force,
+        "driver":     driver or "all",
+        "week_start": week_start or "all",
+    }), 202
+
+
+@app.route('/api/backfill/payout-match', methods=['POST'])
+@csrf.exempt
+@login_required
+def backfill_payout_match():
+    """Re-run payout matching from Master Sheet into driver sheets.
+
+    Body (JSON, all optional):
+        driver      str   — limit to one driver (default: all)
+        week_start  str   — YYYY-MM-DD, limit to one week (default: all)
+
+    Runs synchronously (may take a few minutes). Returns full results.
+    """
+    data       = request.get_json(silent=True) or {}
+    driver     = (data.get("driver") or "").strip() or None
+    week_start = (data.get("week_start") or "").strip() or None
+
+    try:
+        from automation.backfill.relay_backfill import RelayBackfill
+        bf     = RelayBackfill(app=app)
+        result = bf.rerun_payout_match(week_start=week_start, driver_name=driver)
+        return jsonify({"status": "completed", **result}), 200
+    except Exception as exc:
+        _log.error("Payout match rerun failed: %s", exc, exc_info=True)
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+@app.route('/api/backfill/status', methods=['GET'])
+@login_required
+def backfill_status():
+    """Return backfill progress summary from BackfillProgress table.
+
+    Query params:
+        source  — 'gmail' | 'relay' | all (default)
+        limit   — max rows (default 200)
+    """
+    source = request.args.get("source", "").strip() or None
+    limit  = int(request.args.get("limit", 200))
+
+    if not _DB_ENABLED:
+        return jsonify({"error": "DB not configured"}), 503
+
+    try:
+        from models import BackfillProgress
+        with app.app_context():
+            q = BackfillProgress.query
+            if source:
+                q = q.filter(BackfillProgress.source.like(f"{source}%"))
+            rows = q.order_by(BackfillProgress.processed_at.desc()).limit(limit).all()
+            data = [{
+                "source":       r.source,
+                "week_start":   r.week_start,
+                "status":       r.status,
+                "rows_found":   r.rows_found,
+                "rows_written": r.rows_written,
+                "rows_skipped": r.rows_skipped,
+                "unmatched":    r.unmatched,
+                "notes":        r.notes or "",
+                "processed_at": r.processed_at.isoformat() if r.processed_at else "",
+            } for r in rows]
+        return jsonify({"count": len(data), "rows": data}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route('/api/report/debug/trips', methods=['GET'])

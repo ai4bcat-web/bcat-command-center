@@ -721,6 +721,31 @@ class DriverSheetSyncResult(db.Model):
         }
 
 
+class BackfillProgress(db.Model):
+    """Tracks historical backfill progress per source and week.
+
+    Each row = one (source, week_start) combination that has been processed.
+    Used for resumability: skip weeks already marked 'completed'.
+    """
+    __tablename__ = 'backfill_progress'
+
+    id           = db.Column(db.Integer,  primary_key=True)
+    source       = db.Column(db.String(50),  nullable=False)   # 'gmail' | 'relay'
+    week_start   = db.Column(db.String(20),  nullable=False)   # YYYY-MM-DD
+    status       = db.Column(db.String(20),  default='completed')  # 'completed' | 'failed'
+    rows_found   = db.Column(db.Integer,  default=0)
+    rows_written = db.Column(db.Integer,  default=0)
+    rows_skipped = db.Column(db.Integer,  default=0)
+    parse_failed = db.Column(db.Integer,  default=0)
+    unmatched    = db.Column(db.Integer,  default=0)
+    notes        = db.Column(db.Text,     default='')
+    processed_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('source', 'week_start', name='uq_backfill_source_week'),
+    )
+
+
 class RelaySession(db.Model):
     """Stores Amazon Relay browser cookies for headless session reuse on Railway."""
     __tablename__ = 'relay_sessions'

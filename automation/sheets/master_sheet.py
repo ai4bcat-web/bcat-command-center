@@ -6,6 +6,11 @@ Google Spreadsheet.
 
 This sheet is the source of truth for estimated payout by Trip ID.
 
+Structure:
+  - One worksheet per calendar week, named identically to driver sheets: "Apr 5 – 10"
+  - Legacy "Trips" tab preserved for backwards compatibility
+  - Weeks start Sunday, end Friday (Amazon DSP convention)
+
 Column layout (see MASTER_HEADERS below):
   A  Trip ID
   B  Estimated Payout
@@ -29,15 +34,18 @@ Configuration (env var):
 
 Public API:
   MasterSheetWriter
-    .ensure_sheet()                          -> str (spreadsheet_id)
-    .find_row_by_message_id(message_id)      -> int | None
-    .find_payout_by_trip_id(trip_id)         -> float | None
-    .append_or_update(parsed_email)          -> int (1-based row number)
+    .ensure_sheet()                                -> str (spreadsheet_id)
+    .find_row_by_message_id(message_id)            -> (worksheet, int) | (None, None)
+    .find_payout_by_trip_id(trip_id)               -> float | None
+    .append_or_update(parsed_email)                -> int (1-based row number, legacy Trips tab)
+    .append_or_update_to_week_tab(parsed_email)    -> int (1-based row number, weekly tab)
+    .get_all_payouts()                             -> dict[str, float]
+    .list_week_tabs()                              -> list[str]
 """
 
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 log = logging.getLogger("sheets.master_sheet")
 
@@ -65,6 +73,39 @@ COL_PAYOUT     = 2
 COL_MESSAGE_ID = 12
 COL_STATUS     = 14
 
+LEGACY_TAB = "Trips"
+
+
+# ── Week helpers (mirrors driver_sheet.py) ────────────────────────────────────
+
+def week_tab_title(week_start: str) -> str:
+    """
+    Return tab title for a YYYY-MM-DD Sunday.
+
+    Format: "Apr 5 – 10"  (same as driver sheets)
+    Week runs Sunday → Friday (Amazon DSP convention).
+    """
+    try:
+        start = date.fromisoformat(week_start)
+        end   = start + timedelta(days=5)
+        if start.year == end.year:
+            if start.month == end.month:
+                return f"{start.strftime('%b %-d')} – {end.strftime('%-d')}"
+            return f"{start.strftime('%b %-d')} – {end.strftime('%b %-d')}"
+        return f"{start.strftime('%b %-d, %Y')} – {end.strftime('%b %-d, %Y')}"
+    except ValueError:
+        return week_start
+
+
+def sunday_of(dt: datetime | date | None) -> str:
+    """Return YYYY-MM-DD of the Sunday starting the week that contains dt."""
+    if dt is None:
+        return date.today().isoformat()
+    if isinstance(dt, datetime):
+        dt = dt.date()
+    dow = dt.isoweekday() % 7   # Sun=0, Mon=1 … Sat=6
+    return (dt - timedelta(days=dow)).isoformat()
+
 
 class MasterSheetWriter:
     """Manages the BCAT Master Trip Payouts spreadsheet."""
@@ -76,7 +117,7 @@ class MasterSheetWriter:
         self._title         = os.getenv("MASTER_SHEET_TITLE", "BCAT Master Trip Payouts")
         self._sheet_id      = os.getenv("MASTER_SHEET_ID", "").strip() or None
         self._ss            = None    # cached gspread Spreadsheet
-        self._ws            = None    # cached main worksheet
+        self._ws            = None    # cached legacy "Trips" worksheet
 
     # ── Sheet bootstrap ───────────────────────────────────────────────────────
 
@@ -85,7 +126,6 @@ class MasterSheetWriter:
         if self._ss is not None:
             return self._ss.id
 
-        import gspread
         if self._sheet_id:
             client = __import__("automation.sheets.client", fromlist=["get_client"]).get_client()
             self._ss = client.open_by_key(self._sheet_id)
@@ -93,81 +133,126 @@ class MasterSheetWriter:
         else:
             self._ss = self._get_or_create(self._title)
 
-        self._ws = self._ensure_ws(self._ss, "Trips", MASTER_HEADERS)
+        self._ws = self._ensure_ws(self._ss, LEGACY_TAB, MASTER_HEADERS)
         return self._ss.id
 
-    def _ws_data(self) -> list[list]:
-        """Return all sheet values (cached lazily; caller should call ensure_sheet first)."""
-        return self._ws.get_all_values()
+    def ensure_week_tab(self, week_start: str):
+        """Open or create a weekly tab. Returns the gspread Worksheet."""
+        if self._ss is None:
+            self.ensure_sheet()
+        title = week_tab_title(week_start)
+        return self._ensure_ws(self._ss, title, MASTER_HEADERS)
+
+    def list_week_tabs(self) -> list[str]:
+        """Return titles of all weekly tabs (excludes legacy 'Trips' tab)."""
+        if self._ss is None:
+            self.ensure_sheet()
+        return [ws.title for ws in self._ss.worksheets() if ws.title != LEGACY_TAB]
+
+    def all_worksheets(self):
+        """Yield all worksheets (including legacy tab)."""
+        if self._ss is None:
+            self.ensure_sheet()
+        return self._ss.worksheets()
 
     # ── Lookup helpers ────────────────────────────────────────────────────────
 
-    def find_row_by_message_id(self, message_id: str) -> int | None:
+    def find_row_by_message_id(self, message_id: str):
         """
-        Return 1-based row number for an already-imported Gmail message ID.
-        Row 1 = header. Returns None if not found.
+        Search all tabs for an already-imported Gmail message ID.
+
+        Returns (worksheet, 1-based row number) or (None, None) if not found.
         """
-        rows = self._ws_data()
-        for i, row in enumerate(rows[1:], start=2):   # skip header
-            if len(row) >= COL_MESSAGE_ID and row[COL_MESSAGE_ID - 1] == message_id:
-                return i
-        return None
+        if self._ss is None:
+            self.ensure_sheet()
+        for ws in self._ss.worksheets():
+            rows = ws.get_all_values()
+            for i, row in enumerate(rows[1:], start=2):
+                if len(row) >= COL_MESSAGE_ID and row[COL_MESSAGE_ID - 1] == message_id:
+                    return ws, i
+        return None, None
 
     def find_payout_by_trip_id(self, trip_id: str) -> float | None:
-        """
-        Look up estimated payout for a Trip ID.
-        Returns the float value if found, None otherwise.
-        """
+        """Look up estimated payout for a Trip ID across all tabs."""
         if not trip_id:
             return None
         tid_norm = trip_id.strip().upper()
-        rows = self._ws_data()
-        for row in rows[1:]:
-            if not row:
-                continue
-            row_trip = (row[0] if row else "").strip().upper()
-            if row_trip == tid_norm:
-                raw = row[COL_PAYOUT - 1] if len(row) >= COL_PAYOUT else ""
-                raw = str(raw).replace("$", "").replace(",", "").strip()
-                try:
-                    return float(raw)
-                except ValueError:
-                    return None
+        if self._ss is None:
+            self.ensure_sheet()
+        for ws in self._ss.worksheets():
+            for row in ws.get_all_values()[1:]:
+                if not row:
+                    continue
+                if (row[0] if row else "").strip().upper() == tid_norm:
+                    raw = row[COL_PAYOUT - 1] if len(row) >= COL_PAYOUT else ""
+                    raw = str(raw).replace("$", "").replace(",", "").strip()
+                    try:
+                        return float(raw)
+                    except ValueError:
+                        return None
         return None
 
     def get_all_payouts(self) -> dict[str, float]:
-        """Return {trip_id: estimated_payout} for all rows with a valid payout."""
+        """Return {trip_id.upper(): estimated_payout} scanning all tabs."""
         result: dict[str, float] = {}
-        rows = self._ws_data()
-        for row in rows[1:]:
-            if not row:
-                continue
-            trip_id = (row[0] if row else "").strip().upper()
-            raw     = row[COL_PAYOUT - 1] if len(row) >= COL_PAYOUT else ""
-            raw     = str(raw).replace("$", "").replace(",", "").strip()
-            if trip_id:
-                try:
-                    result[trip_id] = float(raw)
-                except ValueError:
-                    pass
+        if self._ss is None:
+            self.ensure_sheet()
+        for ws in self._ss.worksheets():
+            for row in ws.get_all_values()[1:]:
+                if not row:
+                    continue
+                trip_id = (row[0] if row else "").strip().upper()
+                raw     = row[COL_PAYOUT - 1] if len(row) >= COL_PAYOUT else ""
+                raw     = str(raw).replace("$", "").replace(",", "").strip()
+                if trip_id:
+                    try:
+                        result[trip_id] = float(raw)
+                    except ValueError:
+                        pass
         return result
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
-    def append_or_update(self, parsed) -> int:
+    def append_or_update_to_week_tab(self, parsed) -> int:
         """
-        Write or update a row for the given TripEmailData.
+        Write or update a row in the weekly tab determined by parsed.received_at.
 
-        If the Gmail message ID is already in the sheet, updates that row.
-        Otherwise appends a new row at the bottom.
+        Idempotent: if the Gmail message ID is already in any tab, updates that row.
+        Otherwise appends to the correct weekly tab.
 
         Returns 1-based row number where the data was written.
         """
         row_data = self._build_row(parsed)
 
-        existing_row = self.find_row_by_message_id(parsed.message_id)
+        existing_ws, existing_row = self.find_row_by_message_id(parsed.message_id)
+        if existing_ws and existing_row:
+            existing_ws.update(
+                f"A{existing_row}:{_col_letter(len(MASTER_HEADERS))}{existing_row}",
+                [row_data],
+                value_input_option="USER_ENTERED",
+            )
+            log.debug("Updated master week tab row %d for trip %s", existing_row, parsed.trip_id)
+            return existing_row
+
+        # Route to correct weekly tab
+        week_start = sunday_of(parsed.received_at)
+        ws = self.ensure_week_tab(week_start)
+        ws.append_row(row_data, value_input_option="USER_ENTERED")
+        all_data = ws.get_all_values()
+        row_num  = len(all_data)
+        log.debug("Appended master week tab row %d for trip %s payout=%s week=%s",
+                  row_num, parsed.trip_id, parsed.estimated_payout, week_tab_title(week_start))
+        return row_num
+
+    def append_or_update(self, parsed) -> int:
+        """
+        Legacy single-tab write (to 'Trips' worksheet).
+        Kept for backwards compatibility with existing ingestor.run() flow.
+        """
+        row_data = self._build_row(parsed)
+
+        _, existing_row = self.find_row_by_message_id(parsed.message_id)
         if existing_row:
-            # Update existing row
             self._ws.update(
                 f"A{existing_row}:{_col_letter(len(MASTER_HEADERS))}{existing_row}",
                 [row_data],
@@ -176,10 +261,8 @@ class MasterSheetWriter:
             log.info("Updated master sheet row %d for trip %s", existing_row, parsed.trip_id)
             return existing_row
         else:
-            # Append new row
             self._ws.append_row(row_data, value_input_option="USER_ENTERED")
-            # Row number = current row count (after append)
-            all_data = self._ws_data()
+            all_data = self._ws.get_all_values()
             row_num  = len(all_data)
             log.info("Appended master sheet row %d for trip %s payout=%s",
                      row_num, parsed.trip_id, parsed.estimated_payout)

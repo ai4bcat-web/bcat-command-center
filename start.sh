@@ -14,5 +14,8 @@ flask create-admin || true
 echo "Fixing DSP driver type classifications..."
 flask fix-driver-types || true
 
+echo "Starting Relay scheduler (8 AM / 8 PM Central)..."
+python automation/amazon_relay/scheduler.py &
+
 echo "Starting gunicorn..."
 exec gunicorn wsgi:app -c gunicorn.conf.py
